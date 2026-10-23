@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<?xml-model href="http://www.ros.org"?>
+<package format="3">
+  <name>ur3_bringup</name>
+  <version>0.1.0</version>
+  <description>Combined bringup for the UR3, MoveIt, and RealSense camera.</description>
+  <maintainer email="chentom@example.com">chentom</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>ur_robot_driver</exec_depend>
+  <exec_depend>ur_moveit_config</exec_depend>
+  <exec_depend>realsense2_camera</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
