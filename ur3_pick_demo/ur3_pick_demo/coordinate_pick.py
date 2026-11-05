@@ -12,6 +12,7 @@ from pathlib import Path
 
 import rclpy
 from geometry_msgs.msg import PoseStamped
+from visualization_msgs.msg import Marker
 from moveit.planning import MoveItPy
 from moveit_configs_utils import MoveItConfigsBuilder
 from rclpy.duration import Duration
@@ -102,6 +103,7 @@ class CoordinatePickDemo:
         self.node.declare_parameter("tool_link", "tool0")
         self.node.declare_parameter("planning_group", "ur_manipulator")
         self.node.declare_parameter("approach_height", 0.10)
+        self.node.declare_parameter("show_target_marker", True)
         self.robot_ip = self.node.get_parameter("robot_ip").value
         self.gripper_port = self.node.get_parameter("gripper_port").value
         self.gripper_backend = self.node.get_parameter("gripper_backend").value
@@ -112,6 +114,8 @@ class CoordinatePickDemo:
         self.tool_link = self.node.get_parameter("tool_link").value
         self.planning_group = self.node.get_parameter("planning_group").value
         self.approach_height = float(self.node.get_parameter("approach_height").value)
+        self.show_target_marker = bool(self.node.get_parameter("show_target_marker").value)
+        self.marker_pub = self.node.create_publisher(Marker, "~/target_markers", 10)
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self.node, spin_thread=True)
@@ -145,6 +149,46 @@ class CoordinatePickDemo:
         )
         return transform.transform.rotation
 
+    def publish_target_markers(self, point_camera, point_base, approach):
+        """Show the entered camera point (transformed into base_frame) in RViz."""
+        if not self.show_target_marker:
+            return
+        stamp = self.node.get_clock().now().to_msg()
+        for marker_id, position, kind, color, label in (
+            (0, point_base, Marker.SPHERE, (1.0, 0.15, 0.05, 1.0), "GRASP"),
+            (1, approach, Marker.SPHERE, (0.1, 0.8, 0.2, 1.0), "APPROACH"),
+        ):
+            marker = Marker()
+            marker.header.frame_id = self.base_frame
+            marker.header.stamp = stamp
+            marker.ns = "coordinate_pick"
+            marker.id = marker_id
+            marker.type = kind
+            marker.action = Marker.ADD
+            marker.pose.position.x, marker.pose.position.y, marker.pose.position.z = position
+            marker.pose.orientation.w = 1.0
+            marker.scale.x = marker.scale.y = marker.scale.z = 0.045
+            marker.color.r, marker.color.g, marker.color.b, marker.color.a = color
+            marker.lifetime.sec = 0
+            self.marker_pub.publish(marker)
+
+            text = Marker()
+            text.header.frame_id = self.base_frame
+            text.header.stamp = stamp
+            text.ns = "coordinate_pick_labels"
+            text.id = marker_id
+            text.type = Marker.TEXT_VIEW_FACING
+            text.action = Marker.ADD
+            text.pose.position.x = position[0]
+            text.pose.position.y = position[1]
+            text.pose.position.z = position[2] + 0.06
+            text.pose.orientation.w = 1.0
+            text.scale.z = 0.04
+            text.color.r = text.color.g = text.color.b = text.color.a = 1.0
+            text.text = f"{label}  camera=({point_camera[0]:.3f}, {point_camera[1]:.3f}, {point_camera[2]:.3f}) m"
+            text.lifetime.sec = 0
+            self.marker_pub.publish(text)
+
     def plan_and_execute(self, position_base, orientation, label):
         goal = PoseStamped()
         goal.header.frame_id = self.base_frame
@@ -161,8 +205,8 @@ class CoordinatePickDemo:
             return False
 
         print(f"\n{label} pose in {self.base_frame}: {position_base}")
-        if input("確認 RViz 軌跡與手臂周圍空間後執行？輸入 y：").strip().lower() != "y":
-            print("已取消這段移動。")
+        if input("Execute after checking the trajectory in RViz and the space around the robot? Enter y: ").strip().lower() != "y":
+            print("This motion was canceled.")
             return False
         self.robot.execute(result.trajectory, controllers=[])
         return True
@@ -172,15 +216,17 @@ class CoordinatePickDemo:
         orientation = self.current_tool_orientation()
         approach = (point_base[0], point_base[1], point_base[2] + self.approach_height)
 
-        print(f"相機座標 {point_camera} m -> base 座標 {point_base} m")
-        print("這個輸入點會當作 tool0 的目標位置，不是物體中心或像素座標。")
-        if input("確認目標座標正確並開始夾取？輸入 y：").strip().lower() != "y":
+        self.publish_target_markers(point_camera, point_base, approach)
+
+        print(f"Camera coordinates {point_camera} m -> base coordinates {point_base} m")
+        print("The input point is used as the tool0 target position; it is not an object center or pixel coordinate.")
+        if input("Confirm the target coordinates and start picking? Enter y: ").strip().lower() != "y":
             return False
 
         if self.gripper_backend == "tcp":
             self.gripper = RobotiqTcpGripper(self.robot_ip, self.gripper_port)
         else:
-            print("gripper_backend=none：略過實體夾爪動作。")
+            print("gripper_backend=none: skipping physical gripper commands.")
 
         try:
             if self.gripper:
@@ -198,26 +244,26 @@ class CoordinatePickDemo:
                 self.gripper.close()
 
     def run(self):
-        print("輸入 camera_frame 座標 x y z（公尺）；輸入 q 結束。")
+        print("Enter camera_frame coordinates x y z in meters; enter q to quit.")
         while rclpy.ok():
-            raw = input("相機座標 x y z> ").strip()
+            raw = input("Camera x y z> ").strip()
             if raw.lower() in {"q", "quit", "exit"}:
                 break
             try:
                 values = tuple(float(value) for value in raw.replace(",", " ").split())
                 if len(values) != 3 or not all(math.isfinite(value) for value in values):
-                    raise ValueError("請輸入三個有限數值 x y z")
+                    raise ValueError("Enter three finite numeric values for x y z")
                 if any(abs(value) > 2.0 for value in values):
-                    raise ValueError("座標絕對值需小於等於 2 公尺，請確認單位及 frame")
+                    raise ValueError("Coordinate magnitudes must be at most 2 meters; check the units and frame")
             except ValueError as exc:
-                print(f"輸入錯誤：{exc}")
+                print(f"Invalid input: {exc}")
                 continue
             try:
                 self.pick_camera_point(values)
             except TransformException as exc:
-                self.node.get_logger().error(f"找不到校正/機器人 TF：{exc}")
+                self.node.get_logger().error(f"Calibration or robot TF not found: {exc}")
             except (OSError, RuntimeError, TimeoutError) as exc:
-                self.node.get_logger().error(f"夾取流程失敗：{exc}")
+                self.node.get_logger().error(f"Pick sequence failed: {exc}")
 
     def shutdown(self):
         if self.gripper:
@@ -236,7 +282,7 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     except Exception as exc:
-        print(f"啟動失敗：{exc}")
+        print(f"Startup failed: {exc}")
         raise
     finally:
         if app:
