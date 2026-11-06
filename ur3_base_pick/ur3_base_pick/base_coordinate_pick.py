@@ -104,6 +104,8 @@ class BaseCoordinatePick:
         self.node.declare_parameter("robot_ip", "192.168.86.7")
         self.node.declare_parameter("gripper_port", 63352)
         self.node.declare_parameter("gripper_backend", "tcp")
+        self.node.declare_parameter("max_velocity_scaling_factor", 0.1)
+        self.node.declare_parameter("max_acceleration_scaling_factor", 0.1)
         self.node.declare_parameter("workspace_map_min", -0.60)
         self.node.declare_parameter("workspace_map_max", 0.60)
         self.node.declare_parameter("workspace_map_step", 0.05)
@@ -113,6 +115,12 @@ class BaseCoordinatePick:
         self.robot_ip = self.node.get_parameter("robot_ip").value
         self.gripper_port = int(self.node.get_parameter("gripper_port").value)
         self.gripper_backend = self.node.get_parameter("gripper_backend").value
+        self.velocity_scaling = float(
+            self.node.get_parameter("max_velocity_scaling_factor").value
+        )
+        self.acceleration_scaling = float(
+            self.node.get_parameter("max_acceleration_scaling_factor").value
+        )
         self.map_min = float(self.node.get_parameter("workspace_map_min").value)
         self.map_max = float(self.node.get_parameter("workspace_map_max").value)
         self.map_step = float(self.node.get_parameter("workspace_map_step").value)
@@ -120,6 +128,10 @@ class BaseCoordinatePick:
             raise ValueError("workspace map range and step must be positive and ordered")
         if self.gripper_backend not in {"tcp", "none"}:
             raise ValueError("gripper_backend must be 'tcp' or 'none'")
+        if not 0.0 < self.velocity_scaling <= 1.0:
+            raise ValueError("max_velocity_scaling_factor must be in the range (0, 1]")
+        if not 0.0 < self.acceleration_scaling <= 1.0:
+            raise ValueError("max_acceleration_scaling_factor must be in the range (0, 1]")
 
         config = (
             MoveItConfigsBuilder(robot_name="ur", package_name="ur_moveit_config")
@@ -132,18 +144,46 @@ class BaseCoordinatePick:
         # MoveItPy requires this mapping even when MoveItConfigsBuilder returns
         # the list format used by move_group launch configurations.
         moveit_parameters["planning_pipelines"] = {"pipeline_names": ["ompl"]}
+        ompl_parameters = moveit_parameters.setdefault("ompl", {})
+        ompl_parameters[self.group] = {"planner_configs": ["RRTConnect"]}
         moveit_parameters["plan_request_params"] = {
             "planning_pipeline": "ompl",
-            "planner_id": "RRTConnectkConfigDefault",
+            "planner_id": "RRTConnect",
             "planning_time": 5.0,
             "planning_attempts": 5,
-            "max_velocity_scaling_factor": 0.2,
-            "max_acceleration_scaling_factor": 0.2,
+            "max_velocity_scaling_factor": self.velocity_scaling,
+            "max_acceleration_scaling_factor": self.acceleration_scaling,
         }
         self.robot = MoveItPy(
             node_name="ur3_base_coordinate_pick_moveit", config_dict=moveit_parameters
         )
+        self.scene_monitor = self.robot.get_planning_scene_monitor()
+        # MoveItPy listens to /planning_scene. The table publisher resends its
+        # collision diff whenever this late planning client subscribes.
+        self.scene_ready = False
+        for _ in range(40):
+            with self.scene_monitor.read_only() as scene:
+                scene_object_ids = {
+                    obj.id for obj in scene.planning_scene_message.world.collision_objects
+                }
+            if "ur3_virtual_table_collision" in scene_object_ids:
+                self.scene_ready = True
+                break
+            time.sleep(0.2)
+        if self.scene_ready:
+            self.node.get_logger().info(
+                "Received the shared virtual table collision slab on /planning_scene."
+            )
+        else:
+            self.node.get_logger().error(
+                "The shared MoveIt scene has no 'ur3_virtual_table_collision'. "
+                "Start bringup with the virtual table enabled before planning."
+            )
         self.planning = self.robot.get_planning_component(self.group)
+        self.node.get_logger().info(
+            "Trajectory limits: velocity scaling="
+            f"{self.velocity_scaling:.2f}, acceleration scaling={self.acceleration_scaling:.2f}."
+        )
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self.node, spin_thread=True)
         self.map_pub = self.node.create_publisher(
@@ -429,8 +469,9 @@ class BaseCoordinatePick:
         try:
             if self.gripper_backend == "tcp":
                 self.gripper.activate()
-                # Ensure the gripper is ready to grasp before leaving the start pose.
-                self.gripper.move_and_wait(0)
+                # Start the sequence with the gripper closed.
+                self.gripper.move_and_wait(255)
+                print("Gripper closed before outbound motion.")
 
             print("Both outbound and return paths were planned in advance. Starting the automatic pick sequence.")
             if not self.execute_plan(target_plan, "Outbound"):
@@ -438,22 +479,24 @@ class BaseCoordinatePick:
                 return
 
             if self.gripper_backend == "tcp":
-                print("Target reached. Pausing for 1 second before grasping.")
-                time.sleep(1.0)
+                print("Target reached. Opening the gripper.")
+                self.gripper.move_and_wait(0)
+                print("Gripper open. Waiting 0.5 seconds before closing.")
+                time.sleep(0.5)
                 self.gripper.move_and_wait(255)
-                print("Gripper closed.")
+                print("Gripper closed. Waiting 0.5 seconds before returning to 'up'.")
+                time.sleep(0.5)
             else:
-                print("gripper_backend=none: skipping gripper close.")
+                print("gripper_backend=none: skipping all gripper commands.")
 
             if not self.execute_plan(return_plan, "Return"):
                 print("Failed to return to 'up'; the gripper remains closed. Check the robot state.")
                 return
 
             if self.gripper_backend == "tcp":
-                self.gripper.move_and_wait(0)
-                print("Returned to 'up'; gripper opened.")
+                print("Returned to 'up'; gripper remains closed.")
             else:
-                print("Returned to 'up'; gripper_backend=none, skipping gripper open.")
+                print("Returned to 'up'; gripper_backend=none, gripper commands were skipped.")
         finally:
             if self.gripper:
                 self.gripper.close()
@@ -510,6 +553,9 @@ class BaseCoordinatePick:
         self.map_pub.publish(marker_array)
 
     def run(self):
+        if not self.scene_ready:
+            print("Pick program stopped: MoveIt has no shared virtual table collision slab.")
+            return
         print(
             f"Enter {self.base_frame} coordinates x y z in meters to pick and return to 'up'; "
             "enter r to print the current tool0 position; enter m to show the workspace slice at a selected height; "

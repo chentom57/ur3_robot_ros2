@@ -2,6 +2,8 @@
 
 This guide sets up the ROS 2, Python, robot-arm, and camera environment used by this project. Commands and settings below assume Ubuntu 24.04, ROS 2 Jazzy, a UR3, and a Robotiq gripper. Adapt network addresses and hardware-specific settings for other equipment.
 
+Traditional Chinese version: [ur3_ros2_setup.zh-TW.md](ur3_ros2_setup.zh-TW.md)
+
 ## Contents
 
 - [Hardware configuration](#hardware-configuration)
@@ -145,6 +147,23 @@ git clone -b jazzy https://github.com/UniversalRobots/Universal_Robots_ROS2_Driv
 git clone -b ros2-master https://github.com/realsenseai/realsense-ros.git
 ```
 
+### Add the shared virtual tabletop to MoveIt
+
+Copy the shared scene package into the workspace:
+
+```bash
+cp -r /path/to/robotic\ control/ur3_moveit_scene ~/ur3_ws/src/
+```
+
+In the Universal Robots driver source at `~/ur3_ws/src/Universal_Robots_ROS2_Driver`, integrate the package with MoveIt:
+
+1. Add `<exec_depend>ur3_moveit_scene</exec_depend>` to `ur_moveit_config/package.xml`.
+2. In `ur_moveit_config/launch/ur_moveit.launch.py`, start the `ur3_moveit_scene` executable named `virtual_table` alongside MoveIt. The current project copy already includes this integration.
+
+The virtual table is a horizontal 4 m × 4 m collision slab in the `base_link` frame. Its top face is set by `virtual_table_z` (default `-0.01` m); it is 0.02 m thick and extends down from that top face. For example, `virtual_table_z:=-0.04` places the modeled top surface at z = -0.04 m, with the slab spanning z = -0.06 m to -0.04 m. Measure the real tabletop height relative to `base_link` and use that value; the launch does not measure the table automatically.
+
+When MoveIt starts, its launch starts the table publisher if `virtual_table_enabled:=true` (the default). The publisher calls MoveIt's `/apply_planning_scene` service to add the collision object, then publishes scene updates on `/planning_scene` so connected planning-scene monitors receive it. It also publishes a visual marker on `/moveit_virtual_table/marker`; the marker is for RViz display, while collision checking uses the object in MoveIt's Planning Scene. This makes the table available to planning clients that use the same MoveIt scene, not only to the pick program.
+
 For Easy HandEye 2 installation and integration of the automatic calibration program, see [the Easy HandEye 2 guide](handeye/README.md), Section 2. Then continue with dependency installation and building below.
 
 Initialize rosdep once per system if it has not been initialized before, then update its package index:
@@ -161,6 +180,12 @@ cd ~/ur3_ws
 rosdep install -i --from-paths src --rosdistro jazzy -y
 colcon build --symlink-install
 source ~/ur3_ws/install/setup.bash
+```
+
+After the MoveIt configuration has been updated to use `ur3_moveit_scene`, you can rebuild the relevant packages with:
+
+```bash
+colcon build --packages-up-to ur_moveit_config --symlink-install
 ```
 
 To source the workspace automatically in new terminals, add this line to `~/.bashrc`:
@@ -206,11 +231,19 @@ ros2 launch ur_robot_driver ur_control.launch.py ur_type:=ur3 robot_ip:=192.168.
 
 For mock hardware, change `use_mock_hardware:=false` to `use_mock_hardware:=true`. This does not connect to a physical UR3.
 
-Terminal 2: MoveIt and RViz:
+Terminal 2: MoveIt, RViz, and the shared virtual table:
 
 ```bash
-ros2 launch ur_moveit_config ur_moveit.launch.py ur_type:=ur3 launch_rviz:=true
+ros2 launch ur_moveit_config ur_moveit.launch.py ur_type:=ur3 launch_rviz:=true virtual_table_enabled:=true virtual_table_z:=-0.01
 ```
+
+Change `virtual_table_z` to the measured tabletop height in `base_link`. Set `virtual_table_enabled:=false` only when you need to launch without the collision slab. The combined bringup launch also forwards both arguments to MoveIt; for example:
+
+```bash
+ros2 launch ur3_bringup bringup.launch.py use_mock_hardware:=true virtual_table_z:=-0.04
+```
+
+In this example the mock UR3 is used, and the virtual tabletop's top face is at z = -0.04 m in `base_link`.
 
 Terminal 3: RealSense camera:
 

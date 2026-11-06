@@ -1,7 +1,6 @@
 from setuptools import setup
 
-
-package_name = "ur3_pick_demo"
+package_name = "ur3_moveit_scene"
 
 setup(
     name=package_name,
@@ -15,11 +14,9 @@ setup(
     zip_safe=True,
     maintainer="chentom",
     maintainer_email="chentom@example.com",
-    description="Interactive UR3 pick demo using a camera-frame target point",
+    description="Shared virtual collision geometry for UR3 MoveIt",
     license="Apache-2.0",
     entry_points={
-        "console_scripts": [
-            "coordinate_pick = ur3_pick_demo.coordinate_pick:main",
-        ],
+        "console_scripts": ["virtual_table = ur3_moveit_scene.virtual_table:main"],
     },
 )

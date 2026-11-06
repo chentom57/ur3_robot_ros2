@@ -3,10 +3,24 @@ set -euo pipefail
 
 robot_ip="${1:-192.168.86.7}"
 use_mock_hardware="${2:-false}"
+launch_camera="${3:-auto}"
 
 if [[ "$use_mock_hardware" != "true" && "$use_mock_hardware" != "false" ]]; then
   echo "use_mock_hardware must be true or false (received: $use_mock_hardware)" >&2
   exit 2
+fi
+
+if [[ "$launch_camera" != "auto" && "$launch_camera" != "true" && "$launch_camera" != "false" ]]; then
+  echo "launch_camera must be auto, true, or false (received: $launch_camera)" >&2
+  exit 2
+fi
+
+if [[ "$launch_camera" == "auto" ]]; then
+  if [[ "$use_mock_hardware" == "true" ]]; then
+    launch_camera="false"
+  else
+    launch_camera="true"
+  fi
 fi
 
 if ! command -v gnome-terminal >/dev/null 2>&1; then
@@ -35,4 +49,6 @@ open_ros_terminal "UR3 Driver" \
 open_ros_terminal "UR3 MoveIt and RViz" \
   'ros2 launch ur_moveit_config ur_moveit.launch.py ur_type:=ur3 launch_rviz:=true'
 
-open_ros_terminal "RealSense Camera" 'ros2 launch realsense2_camera rs_launch.py'
+if [[ "$launch_camera" == "true" ]]; then
+  open_ros_terminal "RealSense Camera" 'ros2 launch realsense2_camera rs_launch.py'
+fi
