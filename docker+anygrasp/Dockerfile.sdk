@@ -1,0 +1,37 @@
+# Reuse the exact local image whose sparse CUDA convolution test passed.
+FROM anygrasp:minkowski
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libgl1 libglib2.0-0 libgomp1 net-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+# Keep NumPy ABI consistent with the already compiled MinkowskiEngine.
+RUN printf 'numpy==1.26.4\nopencv-python<4.12\n' > /opt/anygrasp-constraints.txt
+ENV PIP_CONSTRAINT=/opt/anygrasp-constraints.txt
+
+RUN git clone https://github.com/graspnet/anygrasp_sdk.git /opt/anygrasp_sdk \
+    && git -C /opt/anygrasp_sdk rev-parse HEAD > /opt/anygrasp-sdk-source-revision.txt \
+    && python -m pip install --no-cache-dir -r /opt/anygrasp_sdk/requirements.txt
+
+WORKDIR /opt/anygrasp_sdk/pointnet2
+RUN python setup.py install
+
+# grasp_nms imports Cython while generating package metadata.
+# --no-build-isolation below uses this explicitly prepared build environment.
+RUN python -m pip install --no-cache-dir "Cython>=0.29.36,<3"
+
+RUN git clone https://github.com/graspnet/graspnetAPI.git /opt/graspnetAPI \
+    && git -C /opt/graspnetAPI rev-parse HEAD > /opt/graspnet-api-source-revision.txt \
+    && python -m pip install --no-cache-dir --no-build-isolation /opt/graspnetAPI
+
+# Open3D dynamically loads EGL even for a module import.
+RUN apt-get update && apt-get install -y --no-install-recommends libegl1 libusb-1.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Leave the source tree so its unbuilt pointnet2 package cannot shadow installation.
+WORKDIR /workspace
+
+# Import compiled modules with torch loaded first; build needs no GPU here.
+RUN python -c "import torch; import MinkowskiEngine; import pointnet2._ext; from graspnetAPI import GraspGroup; assert len(GraspGroup()) == 0; print('SDK dependencies import passed')"
+
+CMD ["bash"]

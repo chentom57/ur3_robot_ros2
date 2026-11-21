@@ -1,0 +1,12 @@
+.git
+assets
+exchange
+results
+__pycache__
+*.tar
+*.zip
+*.lic
+*.public_key
+*.signature
+licenseCfg.json
+README*

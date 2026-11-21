@@ -1,3 +1,17 @@
 .codex/
 .pptx-build/
 node_modules/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+install/
+log/
+.codex-report-build/
+.ruff_cache/
+.mypy_cache/
+dist/
+diagnostics/
+output/

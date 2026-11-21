@@ -1,0 +1,103 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Enabled: true
+  Name: root
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: base_link
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 0.1
+      Plane Cell Count: 20
+      Reference Frame: <Fixed Frame>
+    - Class: moveit_rviz_plugin/MotionPlanning
+      Name: MotionPlanning
+      Enabled: true
+      Robot Description: robot_description
+      Planning Scene Topic: monitored_planning_scene
+      MoveIt_Planning_Time: 5
+      MoveIt_Planning_Attempts: 10
+      Velocity_Scaling_Factor: 0.1
+      Acceleration_Scaling_Factor: 0.1
+      Planning Request:
+        Planning Group: ur_manipulator
+        Query Goal State: true
+        Query Start State: false
+        Show Workspace: false
+      Planned Path:
+        Trajectory Topic: /display_planned_path
+        Show Robot Visual: true
+        Show Robot Collision: false
+      Scene Geometry:
+        Show Scene Geometry: true
+        Scene Alpha: 0.9
+      Scene Robot:
+        Show Robot Visual: true
+        Show Robot Collision: false
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Workspace and paths
+      Enabled: true
+      Topic:
+        Value: /ur3_pick_up/target_and_path_markers
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
+    - Class: rviz_default_plugins/Image
+      Name: Color image
+      Enabled: true
+      Topic:
+        Value: /camera/camera/color/image_raw
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Point cloud
+      Enabled: true
+      Position Transformer: XYZ
+      Color Transformer: RGB8
+      Style: Flat Squares
+      Size (m): 0.005
+      Decay Time: 0
+      Topic:
+        Value: /camera/camera/depth/color/points
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
+    - Class: rviz_default_plugins/TF
+      Name: Frames
+      Enabled: true
+      Show Axes: true
+      Show Names: true
+      Show Arrows: false
+      Frames:
+        All Enabled: false
+        base_link:
+          Value: true
+        camera_color_optical_frame:
+          Value: true
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Target Frame: <Fixed Frame>
+      Distance: 2.0
+      Pitch: 0.6
+      Yaw: 1.7
+      Focal Point:
+        X: 0
+        Y: 0.3
+        Z: 0.2

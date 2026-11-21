@@ -1,0 +1,11 @@
+assets/
+exchange/
+results/
+__pycache__/
+*.pyc
+*.tar
+*.zip
+*.lic
+*.public_key
+*.signature
+licenseCfg.json

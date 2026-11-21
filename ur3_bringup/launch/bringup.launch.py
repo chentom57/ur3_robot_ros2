@@ -4,6 +4,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.substitutions import FindPackageShare
+from launch_ros.actions import Node
 
 
 def generate_launch_description():
@@ -13,6 +14,7 @@ def generate_launch_description():
     virtual_table_z = LaunchConfiguration("virtual_table_z")
     launch_camera = LaunchConfiguration("launch_camera")
     launch_rviz = LaunchConfiguration("launch_rviz")
+    workspace_enabled = LaunchConfiguration("workspace_enabled")
     launch_camera_condition = PythonExpression(
         [
             "'",
@@ -47,7 +49,7 @@ def generate_launch_description():
     moveit = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution(
-                [FindPackageShare("ur_moveit_config"), "launch", "ur_moveit.launch.py"]
+                [FindPackageShare("ur3_bringup"), "launch", "moveit.launch.py"]
             )
         ),
         launch_arguments={
@@ -65,6 +67,15 @@ def generate_launch_description():
             )
         ),
         condition=IfCondition(launch_camera_condition),
+        launch_arguments={"pointcloud.enable": "true"}.items(),
+    )
+
+    workspace = Node(
+        package="ur3_moveit_scene",
+        executable="workspace_preview",
+        name="ur3_workspace_preview",
+        condition=IfCondition(workspace_enabled),
+        output="log",
     )
 
     return LaunchDescription(
@@ -101,6 +112,13 @@ def generate_launch_description():
                 choices=["true", "false"],
                 description="Launch MoveIt RViz",
             ),
+            DeclareLaunchArgument(
+                "workspace_enabled",
+                default_value="true",
+                choices=["true", "false"],
+                description="Show the workspace volume in RViz for physical and mock hardware",
+            ),
+            workspace,
             driver,
             moveit,
             camera,
