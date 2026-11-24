@@ -111,9 +111,8 @@ class RobotiqGripper:
 class PickUp:
     def __init__(self):
         self.node = Node("ur3_pick_up")
-        from .live_input import Workspace, validate_settings
+        from .live_input import validate_settings
         from .anygrasp_input import load_tool_config
-        from ur3_moveit_scene.workspace import DEFAULT_WORKSPACE_MIN, DEFAULT_WORKSPACE_MAX
         defaults = {
             "base_frame": "base_link", "tool_link": "tool0", "tcp_offset": 0.174,
             "planning_group": "ur_manipulator", "robot_ip": "192.168.86.7",
@@ -125,8 +124,6 @@ class PickUp:
             "color_image_topic": "/camera/camera/color/image_raw",
             "color_camera_info_topic": "/camera/camera/color/camera_info",
             "cloud_timeout": 10.0, "cloud_max_age": 1.0,
-            "workspace_min": list(DEFAULT_WORKSPACE_MIN),
-            "workspace_max": list(DEFAULT_WORKSPACE_MAX),
             "voxel_size": 0.005, "max_points": 120000, "max_camera_depth": 2.0,
             "min_roi_points": 50,
             "docker_container": "anygrasp-fixed", "docker_use_sudo": True,
@@ -150,7 +147,6 @@ class PickUp:
         self.gripper_backend = self.settings["gripper_backend"]
         self.velocity_scaling = self.settings["max_velocity_scaling_factor"]
         self.acceleration_scaling = self.settings["max_acceleration_scaling_factor"]
-        self.workspace = Workspace(self.settings["workspace_min"], self.settings["workspace_max"])
         self.tip_from_tool, self.max_opening = load_tool_config(
             self.settings["grasp_tool_config"], self.tool_link, self.tcp_offset)
         if self.max_opening > 0.1:
@@ -214,23 +210,13 @@ class PickUp:
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self.node, spin_thread=True)
         marker_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        self.map_pub = self.node.create_publisher(MarkerArray, "~/workspace", marker_qos)
         self.target_path_pub = self.node.create_publisher(
             MarkerArray, "~/target_and_path_markers", marker_qos)
-        self.publish_workspace()
         # Also feed the existing bringup RViz target/path display. Periodic
         # publication supports its volatile subscription and late subscribers.
         self.marker_timer = self.node.create_timer(1.0, self.refresh_markers)
 
-    def publish_workspace(self):
-        from ur3_moveit_scene.workspace import workspace_markers
-        markers = workspace_markers(self.workspace, self.base_frame)
-        self.map_pub.publish(markers)
-        if self.last_markers is None:
-            self.target_path_pub.publish(markers)
-
     def refresh_markers(self):
-        self.publish_workspace()
         if self.last_markers is not None:
             self.target_path_pub.publish(self.last_markers)
 
@@ -334,8 +320,7 @@ class PickUp:
         xyz = base_to_tool[:3, 3] + base_to_tool[:3, :3] @ [0.0, 0.0, self.tcp_offset]
         q = quaternion_from_matrix(base_to_tool)
         orientation = Quaternion(x=float(q[0]), y=float(q[1]), z=float(q[2]), w=float(q[3]))
-        from ur3_moveit_scene.workspace import workspace_markers
-        markers = workspace_markers(self.workspace, self.base_frame)
+        markers = MarkerArray()
         clear = Marker()
         clear.action = Marker.DELETEALL
         markers.markers.insert(0, clear)

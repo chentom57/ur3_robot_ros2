@@ -10,7 +10,7 @@ ROS communication, camera capture, coordinate transforms, planning and hardware 
 
 The goal is to recognize a target object in the camera view and have the robot grasp it. The intended workflow is object recognition, target localization or segmentation, grasp-pose estimation, coordinate conversion, motion planning and physical grasping.
 
-The current implementation provides live point-cloud capture, AnyGrasp grasp proposals, coordinate conversion, planning and confirmed execution. Object recognition and the connection between a recognized target and its grasp candidates remain to be integrated. At present, candidate selection uses geometry, workspace bounds, scores and planning feasibility.
+The current implementation provides live point-cloud capture, AnyGrasp grasp proposals, coordinate conversion, planning and confirmed execution. Object recognition and the connection between a recognized target and its grasp candidates remain to be integrated. At present, candidate selection is guided by the manually selected image region, gripper opening, scores and planning feasibility.
 
 ## Features
 
@@ -18,10 +18,10 @@ The current implementation provides live point-cloud capture, AnyGrasp grasp pro
 | --- | --- |
 | System bringup | Starts the robot driver, MoveIt, RViz, a virtual table and an optional camera with physical or mock hardware. |
 | Hand-eye calibration | Samples robot poses, computes and saves calibration, and publishes or reloads the robot-to-camera TF. The default setup is eye-on-base. |
-| Live grasp inference | Captures a fresh cloud and passes it with a workspace mask into Docker to obtain grasp candidates. |
-| Candidate planning | Tries valid candidates by descending score and selects the first with both outbound and return-to-home plans. |
-| Task execution | Requires confirmation before execution, then follows initial home, target pose, open, close, return home and release. |
-| Visualization | Displays the workspace, TCP target and axes, paths and table. The workspace is a selection volume; the table is a separate collision object. |
+| Live grasp inference | Captures a fresh cloud and passes it with the manually selected region mask into Docker to obtain grasp candidates. |
+| Candidate planning | Tries valid candidates by descending score and selects the first with both outbound and return-to-start plans. |
+| Task execution | Requires confirmation before execution, opens the gripper, moves to the target, closes, returns to the recorded startup position and waits for release confirmation. |
+| Visualization | Displays the TCP target and axes, planned paths and table collision marker. |
 | Planning only | `plan_only:=true` captures, infers and plans without sending arm or gripper commands. |
 
 Each `pick_up` invocation captures one scene and executes at most one candidate. Continuous picking and selection by object name are not implemented. AnyGrasp proposes grasps from geometry; SAM and semantic object recognition are not integrated.
@@ -31,7 +31,7 @@ Each `pick_up` invocation captures one scene and executes at most one candidate.
 | Folder | Purpose | Tools | Guides |
 | --- | --- | --- | --- |
 | `ROS2+driver/` | Host, robot and camera setup guides; driver sources are obtained separately. | Ubuntu, ROS 2 Jazzy, UR ROS 2 Driver, RealSense SDK/ROS driver, rosdep, colcon, network diagnostics | [Guide](ROS2+driver/ur3_ros2_setup.md) |
-| `ur3_moveit_scene/` | Shared collision table, workspace geometry and preview. | Python, rclpy, MoveIt Planning Scene, RViz Marker/MarkerArray, NumPy | [Guide](ur3_moveit_scene/README.md) |
+| `ur3_moveit_scene/` | Shared collision table. | Python, rclpy, MoveIt Planning Scene, RViz Marker/MarkerArray | [Guide](ur3_moveit_scene/README.md) |
 | `ur3_bringup/` | Combined launch, hardware-mode selection, and the project MoveIt/RViz integration. | ROS 2 launch, UR driver, MoveIt, RViz, RealSense, CMake | [Guide](ur3_bringup/README.md) |
 | `easy_handeye2/` | Generic sampling, OpenCV computation, persistence and manual/evaluation GUIs, with necessary fixes retained. | Python, TF2, OpenCV, Qt/rqt, NumPy, transforms3d | [Guide](easy_handeye2/README.md) |
 | `auto_calibration/` | UR3 automatic sampling and TF publication management, using easy_handeye2 services. | MoveItPy, ArUco, TF2, ROS services and child-process management | [Guide](auto_calibration/README.md) |
@@ -57,7 +57,7 @@ The host copies `ur3_pick_up/scripts/anygrasp_worker.py` into Docker for inferen
 | Cloud topic | `/camera/camera/depth/color/points` |
 | Grasp TCP | Default offset of 0.174 m along tool0 +Z; axis mapping is defined in the tool configuration. |
 
-Set hardware addresses, TCP, camera placement and workspace bounds for your installation. Obtain the AnyGrasp SDK, license and model weights separately as described in the Docker guide; they are not bundled here.
+Set hardware addresses, TCP and camera placement for your installation. Obtain the AnyGrasp SDK, license and model weights separately as described in the Docker guide; they are not bundled here.
 
 ## Dependency setup
 
@@ -70,7 +70,7 @@ Place one complete repository at `~/ur3_ws/src/robot_arm` (the name is arbitrary
 | RealSense ROS 4.59.1 and system SDK | Source checkout in host setup; SDK 2.59.0 or later, currently 2.59.1. Use `--skip-keys librealsense2` with rosdep to avoid a second SDK. |
 | `easy_handeye2_msgs` 0.5.0 | Pinned sparse checkout in [host guide Section 4](ROS2+driver/ur3_ros2_setup.md#handeye-message-dependency); it excludes the upstream implementation to prevent duplicate packages. |
 | ArUco, MoveItPy, Qt/rqt, OpenCV, NumPy, transforms3d and YAML | Installed from manifests by the single rosdep command in [host guide Section 4](ROS2+driver/ur3_ros2_setup.md). |
-| GPU Docker, AnyGrasp SDK, license and detection weights | [Docker guide](docker+anygrasp/README.md), Sections 3–7. These are required for pick-up inference, not calibration or workspace display. |
+| GPU Docker, AnyGrasp SDK, license and detection weights | [Docker guide](docker+anygrasp/README.md), Sections 3–7. These are required for pick-up inference, not calibration. |
 
 Complete source downloads before running rosdep. Initialize rosdep once with `sudo rosdep init`, run `rosdep update`, then resolve dependencies and build from `~/ur3_ws` as described in the host guide. Stop and resolve any rosdep errors before building.
 
@@ -103,7 +103,7 @@ Existing workspaces with packages in separate folders can retain that layout. Ru
 | 3 | `ur3_bringup/`：[Guide](ur3_bringup/README.md) | Start the system and verify robot state, visualization and camera streams. |
 | 4 | `auto_calibration/`：[Guide](auto_calibration/README.md) | Check calibration readiness, sample with a rigid marker, save calibration and publish TF. |
 | 5 | `docker+anygrasp/`：[Guide](docker+anygrasp/README.md) | Set up GPU Docker, build the SDK, obtain licensing and weights, and run the official-data demo. This step can be prepared independently. |
-| 6 | `ur3_pick_up/`：[Guide](ur3_pick_up/README.md) | Configure TCP and workspace, verify the live pipeline with planning only, then execute a physical task. |
+| 6 | `ur3_pick_up/`：[Guide](ur3_pick_up/README.md) | Configure TCP, verify the live pipeline with planning only, then execute a physical task. |
 
 For manual calibration or generic service details, read the [easy_handeye2 guide](easy_handeye2/README.md). Normal automatic operation uses `auto_calibration` and does not require manually starting its core GUI.
 
@@ -179,22 +179,20 @@ Source files below use paths relative to the project root. Git internals, build 
 | [ur3_bringup/CMakeLists.txt](ur3_bringup/CMakeLists.txt) | Define the ament_cmake package and install launch files, RViz configuration and bilingual READMEs. |
 | [ur3_bringup/README.md](ur3_bringup/README.md) | English guide: Physical/mock startup, launch parameters, RViz, SDK troubleshooting and status checks. |
 | [ur3_bringup/README.zh-TW.md](ur3_bringup/README.zh-TW.md) | Traditional Chinese guide: Physical/mock startup, launch parameters, RViz, SDK troubleshooting and status checks. |
-| [ur3_bringup/config/moveit.rviz](ur3_bringup/config/moveit.rviz) | RViz displays for the robot, planning scene, table, workspace/path markers, image, cloud and TF. |
-| [ur3_bringup/launch/bringup.launch.py](ur3_bringup/launch/bringup.launch.py) | Combine UR driver, MoveIt, RViz, table, workspace preview and camera for physical/mock hardware. |
+| [ur3_bringup/config/moveit.rviz](ur3_bringup/config/moveit.rviz) | RViz displays for the robot, planning scene, table, target/path markers, image, cloud and TF. |
+| [ur3_bringup/launch/bringup.launch.py](ur3_bringup/launch/bringup.launch.py) | Combine UR driver, MoveIt, RViz, table and camera for physical/mock hardware. |
 | [ur3_bringup/launch/moveit.launch.py](ur3_bringup/launch/moveit.launch.py) | Include upstream MoveIt and manage the project RViz/collision table without duplicate launches. |
 | [ur3_bringup/package.xml](ur3_bringup/package.xml) | ROS package identity, version, license and build/runtime dependency declarations. |
-| [ur3_moveit_scene/README.md](ur3_moveit_scene/README.md) | English guide: Shared collision table, workspace visualization and scene parameters. |
-| [ur3_moveit_scene/README.zh-TW.md](ur3_moveit_scene/README.zh-TW.md) | Traditional Chinese guide: Shared collision table, workspace visualization and scene parameters. |
+| [ur3_moveit_scene/README.md](ur3_moveit_scene/README.md) | English guide: Shared collision table and scene parameters. |
+| [ur3_moveit_scene/README.zh-TW.md](ur3_moveit_scene/README.zh-TW.md) | Traditional Chinese guide: Shared collision table and scene parameters. |
 | [ur3_moveit_scene/package.xml](ur3_moveit_scene/package.xml) | ROS package identity, version, license and build/runtime dependency declarations. |
 | [ur3_moveit_scene/resource/ur3_moveit_scene](ur3_moveit_scene/resource/ur3_moveit_scene) | Package marker in the ament index; required for ROS discovery even when empty. |
 | [ur3_moveit_scene/setup.cfg](ur3_moveit_scene/setup.cfg) | Install registered executables under lib/ur3_moveit_scene for ros2 run discovery. |
-| [ur3_moveit_scene/setup.py](ur3_moveit_scene/setup.py) | Register virtual_table/workspace_preview and install the ROS package marker and bilingual READMEs. |
+| [ur3_moveit_scene/setup.py](ur3_moveit_scene/setup.py) | Register virtual_table and install the ROS package marker and bilingual READMEs. |
 | [ur3_moveit_scene/ur3_moveit_scene/__init__.py](ur3_moveit_scene/ur3_moveit_scene/__init__.py) | Python package marker for shared scene utilities. |
 | [ur3_moveit_scene/ur3_moveit_scene/virtual_table.py](ur3_moveit_scene/ur3_moveit_scene/virtual_table.py) | Add the virtual table to the MoveIt Planning Scene and publish scene updates/RViz markers. |
-| [ur3_moveit_scene/ur3_moveit_scene/workspace.py](ur3_moveit_scene/ur3_moveit_scene/workspace.py) | Shared workspace bounds, point-in-volume checks and workspace MarkerArray geometry. |
-| [ur3_moveit_scene/ur3_moveit_scene/workspace_preview.py](ur3_moveit_scene/ur3_moveit_scene/workspace_preview.py) | Independent bringup workspace preview, yielding marker publication to an active pick task and resuming afterward. |
-| [ur3_pick_up/README.md](ur3_pick_up/README.md) | English guide: Live AnyGrasp picking, workspace, startup order, TCP, parameters, failure handling and exit codes. |
-| [ur3_pick_up/README.zh-TW.md](ur3_pick_up/README.zh-TW.md) | Traditional Chinese guide: Live AnyGrasp picking, workspace, startup order, TCP, parameters, failure handling and exit codes. |
+| [ur3_pick_up/README.md](ur3_pick_up/README.md) | English guide: Live AnyGrasp picking, startup order, TCP, parameters, failure handling and exit codes. |
+| [ur3_pick_up/README.zh-TW.md](ur3_pick_up/README.zh-TW.md) | Traditional Chinese guide: Live AnyGrasp picking, startup order, TCP, parameters, failure handling and exit codes. |
 | [ur3_pick_up/config/grasp_tool.example.json](ur3_pick_up/config/grasp_tool.example.json) | Robotiq tool configuration template: tool0, application TCP offset, grasp-axis mapping and 0.085 m maximum opening. |
 | [ur3_pick_up/package.xml](ur3_pick_up/package.xml) | ROS package identity, version, license and build/runtime dependency declarations. |
 | [ur3_pick_up/resource/ur3_pick_up](ur3_pick_up/resource/ur3_pick_up) | Package marker in the ament index; required for ROS discovery even when empty. |
@@ -203,8 +201,8 @@ Source files below use paths relative to the project root. Git internals, build 
 | [ur3_pick_up/setup.py](ur3_pick_up/setup.py) | Register pick_up and install tool settings, the container inference worker and bilingual READMEs. |
 | [ur3_pick_up/ur3_pick_up/__init__.py](ur3_pick_up/ur3_pick_up/__init__.py) | Python package marker for live picking. |
 | [ur3_pick_up/ur3_pick_up/anygrasp_input.py](ur3_pick_up/ur3_pick_up/anygrasp_input.py) | Parse/validate AnyGrasp/GraspNet candidates and tool settings; handle depth, axis mapping and TCP pose conversion. |
-| [ur3_pick_up/ur3_pick_up/anygrasp_task.py](ur3_pick_up/ur3_pick_up/anygrasp_task.py) | Coordinate capture/inference, try ranked plannable poses and execute confirmed picking, return home and release. |
+| [ur3_pick_up/ur3_pick_up/anygrasp_task.py](ur3_pick_up/ur3_pick_up/anygrasp_task.py) | Coordinate capture/inference, try ranked plannable poses and execute confirmed picking, return to the recorded startup position and wait for release confirmation. |
 | [ur3_pick_up/ur3_pick_up/camera_capture.py](ur3_pick_up/ur3_pick_up/camera_capture.py) | Receive a fresh PointCloud2, check timing/frame and capture its corresponding TF snapshot. |
 | [ur3_pick_up/ur3_pick_up/docker_client.py](ur3_pick_up/ur3_pick_up/docker_client.py) | Check/start the existing container and exchange inference requests/results through files and docker cp/exec. |
-| [ur3_pick_up/ur3_pick_up/live_input.py](ur3_pick_up/ur3_pick_up/live_input.py) | Decode/transform clouds, apply workspace/voxel/count filters, rank candidates and check fixed-camera TF consistency. |
+| [ur3_pick_up/ur3_pick_up/live_input.py](ur3_pick_up/ur3_pick_up/live_input.py) | Decode clouds, apply voxel/count filters, map the selection mask, rank candidates and check fixed-camera TF consistency. |
 | [ur3_pick_up/ur3_pick_up/pick_up.py](ur3_pick_up/ur3_pick_up/pick_up.py) | pick_up entry point, ROS parameters, MoveIt planning/execution, TCP/path markers and Robotiq socket control. |

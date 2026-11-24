@@ -10,7 +10,7 @@
 
 本專案希望完成「物體辨識後夾取」：從相機畫面辨識目標物體，取得其位置或分割範圍，再估算夾取姿態，經過座標轉換與路徑規劃，讓手臂夾取該物體。
 
-目前已具備即時點雲擷取、AnyGrasp 候選姿態生成、座標轉換、規劃與確認後執行。物體辨識，以及辨識目標與夾取候選之間的對應仍待整合；現階段依幾何、工作區、評分與規劃可行性選擇姿態。
+目前已具備即時點雲擷取、AnyGrasp 候選姿態生成、座標轉換、規劃與確認後執行。物體辨識，以及辨識目標與夾取候選之間的對應仍待整合；現階段依人工圈選區域、夾爪開口、評分與規劃可行性選擇姿態。
 
 ## 專案功能
 
@@ -18,10 +18,10 @@
 | --- | --- |
 | 系統啟動 | 整合手臂 driver、MoveIt、RViz、虛擬桌面與選用的 RealSense 相機，支援實體或 mock hardware。 |
 | 手眼校正 | 自動移動採樣、計算及儲存校正，發布或重新載入手臂與相機之間的 TF。預設是相機固定的 eye-on-base 配置。 |
-| 即時姿態推論 | 擷取新的相機點雲，產生工作區遮罩，透過檔案傳入 Docker，取得 AnyGrasp 候選姿態。 |
-| 候選規劃 | 按分數由高到低嘗試有效姿態，選擇第一個去程與返回 home 都能規劃成功的候選。 |
-| 夾取執行 | 執行前要求確認；流程為初始 home、到候選姿態、開爪、閉爪、返回 home、開爪釋放。 |
-| RViz 顯示 | 顯示工作區、TCP 目標、姿態三軸、去回程路徑及桌面。工作區框是候選篩選範圍；桌面另以碰撞物件加入 MoveIt。 |
+| 即時姿態推論 | 擷取新的相機點雲，將人工圈選區域遮罩透過檔案傳入 Docker，取得 AnyGrasp 候選姿態。 |
+| 候選規劃 | 按分數由高到低嘗試有效姿態，選擇第一個去程與返回記錄起始位置都能規劃成功的候選。 |
+| 夾取執行 | 執行前要求確認；先開爪，再移至候選姿態並閉爪，接著返回記錄的起始位置，等候使用者確認放爪。 |
+| RViz 顯示 | 顯示 TCP 目標、姿態三軸、去回程路徑及桌面碰撞標記。 |
 | 僅規劃 | `plan_only:=true` 仍會擷取點雲、執行推論及規劃，但不下達手臂或夾爪命令。 |
 
 每次啟動 `pick_up` 擷取一個場景，最多執行一個候選；目前沒有連續循環夾取或依物體名稱選取目標的介面。AnyGrasp 根據幾何產生可夾取姿態，沒有整合 SAM 或語意物體辨識。
@@ -31,7 +31,7 @@
 | 資料夾 | 功能 | 使用工具 | 操作文件 |
 | --- | --- | --- | --- |
 | `ROS2+driver/` | 建立主機 ROS、手臂與相機環境的基礎講義；不包含 driver 原始碼。 | Ubuntu、ROS 2 Jazzy、UR ROS 2 Driver、RealSense SDK／ROS driver、rosdep、colcon、網路診斷工具 | [操作講義](ROS2+driver/ur3_ros2_setup.zh-TW.md) |
-| `ur3_moveit_scene/` | 共用虛擬碰撞桌面、工作區定義與獨立預覽。 | Python、rclpy、MoveIt Planning Scene、RViz Marker／MarkerArray、NumPy | [操作講義](ur3_moveit_scene/README.zh-TW.md) |
+| `ur3_moveit_scene/` | 共用虛擬碰撞桌面。 | Python、rclpy、MoveIt Planning Scene、RViz Marker／MarkerArray | [操作講義](ur3_moveit_scene/README.zh-TW.md) |
 | `ur3_bringup/` | 系統整合啟動及實體／虛擬模式設定，附本專案的 MoveIt／RViz 整合。 | ROS 2 launch、UR driver、MoveIt、RViz、RealSense、CMake | [操作講義](ur3_bringup/README.zh-TW.md) |
 | `easy_handeye2/` | 通用採樣服務、OpenCV 校正計算、儲存與手動／評估 GUI，保留必要修補。 | Python、TF2、OpenCV、Qt／rqt、NumPy、transforms3d | [操作講義](easy_handeye2/README.zh-TW.md) |
 | `auto_calibration/` | UR3 自動採樣流程與 TF 發布管理，透過服務使用 easy_handeye2。 | MoveItPy、ArUco、TF2、ROS 服務與子程序管理 | [操作講義](auto_calibration/README.zh-TW.md) |
@@ -57,7 +57,7 @@
 | 點雲 topic | `/camera/camera/depth/color/points` |
 | 夾取中心 | 預設為 `tool0` 的 +Z 方向 0.174 m，軸向對應見夾爪設定檔。 |
 
-硬體位址、TCP、相機位置與工作區需依實際安裝設定。AnyGrasp SDK、授權與模型權重依 Docker 講義另行取得，本專案不附這些檔案。
+硬體位址、TCP 與相機位置需依實際安裝設定。AnyGrasp SDK、授權與模型權重依 Docker 講義另行取得，本專案不附這些檔案。
 
 ## 相依套件準備
 
@@ -70,7 +70,7 @@
 | RealSense ROS 4.59.1 與系統 SDK | 依主機講義下載相機來源；SDK 需 2.59.0 以上，目前使用 2.59.1。rosdep 加 `--skip-keys librealsense2`，避免另一套 SDK。 |
 | `easy_handeye2_msgs` 0.5.0 | [主機講義第 4 節](ROS2+driver/ur3_ros2_setup.zh-TW.md#handeye-message-dependency)的固定 revision、sparse checkout；不取出官方主程式，避免重複套件。 |
 | ArUco、MoveItPy、Qt／rqt、OpenCV、NumPy、transforms3d 與 YAML | 由[主機講義第 4 節](ROS2+driver/ur3_ros2_setup.zh-TW.md)的 rosdep 指令依 manifest 一次安裝。 |
-| GPU Docker、AnyGrasp SDK、授權與 detection 權重 | [Docker 講義](docker+anygrasp/README.zh-TW.md)第 3～7 節；夾取推論需要，校正與工作區顯示不需要。 |
+| GPU Docker、AnyGrasp SDK、授權與 detection 權重 | [Docker 講義](docker+anygrasp/README.zh-TW.md)第 3～7 節；夾取推論需要，校正不需要。 |
 
 先備妥來源，再執行 rosdep。首次使用以 `sudo rosdep init` 初始化，接著 `rosdep update`，再依主機講義於 `~/ur3_ws` 安裝相依與建置。rosdep 若有錯誤，先解決再編譯。
 
@@ -103,7 +103,7 @@
 | 3 | `ur3_bringup/`：[操作講義](ur3_bringup/README.zh-TW.md) | 啟動系統，確認手臂狀態、RViz、相機與點雲。 |
 | 4 | `auto_calibration/`：[操作講義](auto_calibration/README.zh-TW.md) | 確認校正相依就緒、固定標記並完成採樣，儲存及發布相機與手臂的 TF。 |
 | 5 | `docker+anygrasp/`：[操作講義](docker+anygrasp/README.zh-TW.md) | 安裝 GPU Docker 環境、建置 SDK、取得授權與權重，先完成官方範例推論。此步可獨立準備。 |
-| 6 | `ur3_pick_up/`：[操作講義](ur3_pick_up/README.zh-TW.md) | 設定夾爪 TCP 與工作區；先以 `plan_only:=true` 驗證即時點雲、推論及規劃，再操作實體夾取。 |
+| 6 | `ur3_pick_up/`：[操作講義](ur3_pick_up/README.zh-TW.md) | 設定夾爪 TCP；先以 `plan_only:=true` 驗證即時點雲、推論及規劃，再操作實體夾取。 |
 
 手動校正或查閱通用服務時，另讀 [easy_handeye2 講義](easy_handeye2/README.zh-TW.md)；日常自動校正使用 `auto_calibration`，不必手動啟動 easy_handeye2 GUI。
 
@@ -113,7 +113,7 @@
 
 | 設備 | 可執行內容 |
 | --- | --- |
-| 無手臂、無相機 | Mock bringup、RViz 場景與工作區；有 GPU 容器時可另跑官方範例推論。 |
+| 無手臂、無相機 | Mock bringup、RViz 場景與虛擬桌面；有 GPU 容器時可另跑官方範例推論。 |
 | 有相機、無手臂 | `use_mock_hardware:=true launch_camera:=true`，確認點雲，再配合校正 TF 與 `plan_only:=true` 排查接收、推論及虛擬規劃。相機若移位，舊校正不能驗證實際位置精度。 |
 | 手臂與相機皆有 | 完成手眼校正後，執行即時規劃與確認後的實體夾取。 |
 
@@ -179,22 +179,20 @@
 | [ur3_bringup/CMakeLists.txt](ur3_bringup/CMakeLists.txt) | 宣告 ament_cmake 套件，安裝 launch、RViz 設定及雙語 README。 |
 | [ur3_bringup/README.md](ur3_bringup/README.md) | 英文操作指南：實機／mock 啟動、launch 參數、RViz、SDK 排查與狀態檢查。 |
 | [ur3_bringup/README.zh-TW.md](ur3_bringup/README.zh-TW.md) | 繁體中文操作指南：實機／mock 啟動、launch 參數、RViz、SDK 排查與狀態檢查。 |
-| [ur3_bringup/config/moveit.rviz](ur3_bringup/config/moveit.rviz) | RViz 顯示設定：手臂、規劃場景、桌面、工作區／路徑標記、影像、點雲與 TF。 |
-| [ur3_bringup/launch/bringup.launch.py](ur3_bringup/launch/bringup.launch.py) | 整合 UR driver、MoveIt、RViz、桌面、工作區預覽與相機；支援實機與 mock 模式。 |
+| [ur3_bringup/config/moveit.rviz](ur3_bringup/config/moveit.rviz) | RViz 顯示設定：手臂、規劃場景、桌面、目標／路徑標記、影像、點雲與 TF。 |
+| [ur3_bringup/launch/bringup.launch.py](ur3_bringup/launch/bringup.launch.py) | 整合 UR driver、MoveIt、RViz、桌面與相機；支援實機與 mock 模式。 |
 | [ur3_bringup/launch/moveit.launch.py](ur3_bringup/launch/moveit.launch.py) | 引入官方 MoveIt launch，統一管理本專案的 RViz 與碰撞桌面，避免重複啟動。 |
 | [ur3_bringup/package.xml](ur3_bringup/package.xml) | ROS 套件名稱、版本、授權與建置／執行相依宣告。 |
-| [ur3_moveit_scene/README.md](ur3_moveit_scene/README.md) | 英文操作指南：共用碰撞桌面、工作區顯示與場景參數的使用方式。 |
-| [ur3_moveit_scene/README.zh-TW.md](ur3_moveit_scene/README.zh-TW.md) | 繁體中文操作指南：共用碰撞桌面、工作區顯示與場景參數的使用方式。 |
+| [ur3_moveit_scene/README.md](ur3_moveit_scene/README.md) | 英文操作指南：共用碰撞桌面與場景參數的使用方式。 |
+| [ur3_moveit_scene/README.zh-TW.md](ur3_moveit_scene/README.zh-TW.md) | 繁體中文操作指南：共用碰撞桌面與場景參數的使用方式。 |
 | [ur3_moveit_scene/package.xml](ur3_moveit_scene/package.xml) | ROS 套件名稱、版本、授權與建置／執行相依宣告。 |
 | [ur3_moveit_scene/resource/ur3_moveit_scene](ur3_moveit_scene/resource/ur3_moveit_scene) | ament 索引的套件辨識標記；供 ROS 2 找到套件，空檔案也必須保留。 |
 | [ur3_moveit_scene/setup.cfg](ur3_moveit_scene/setup.cfg) | 將 ur3_moveit_scene 的註冊執行檔安裝到 lib/ur3_moveit_scene，供 ros2 run 尋找。 |
-| [ur3_moveit_scene/setup.py](ur3_moveit_scene/setup.py) | 註冊 virtual_table 與 workspace_preview 指令，安裝 ROS 資源標記與雙語 README。 |
+| [ur3_moveit_scene/setup.py](ur3_moveit_scene/setup.py) | 註冊 virtual_table 指令，安裝 ROS 資源標記與雙語 README。 |
 | [ur3_moveit_scene/ur3_moveit_scene/__init__.py](ur3_moveit_scene/ur3_moveit_scene/__init__.py) | 標示共用場景 Python 套件。 |
 | [ur3_moveit_scene/ur3_moveit_scene/virtual_table.py](ur3_moveit_scene/ur3_moveit_scene/virtual_table.py) | 將虛擬桌面加入 MoveIt Planning Scene，並發布場景更新與 RViz 標記。 |
-| [ur3_moveit_scene/ur3_moveit_scene/workspace.py](ur3_moveit_scene/ur3_moveit_scene/workspace.py) | 共用工作區範圍、點位包含判斷與工作區 MarkerArray 幾何。 |
-| [ur3_moveit_scene/ur3_moveit_scene/workspace_preview.py](ur3_moveit_scene/ur3_moveit_scene/workspace_preview.py) | bringup 的獨立工作區預覽節點；執行夾取時讓出標記發布，結束後恢復。 |
-| [ur3_pick_up/README.md](ur3_pick_up/README.md) | 英文操作指南：即時 AnyGrasp 夾取、工作區、啟動順序、TCP、參數、失敗處理與結束碼。 |
-| [ur3_pick_up/README.zh-TW.md](ur3_pick_up/README.zh-TW.md) | 繁體中文操作指南：即時 AnyGrasp 夾取、工作區、啟動順序、TCP、參數、失敗處理與結束碼。 |
+| [ur3_pick_up/README.md](ur3_pick_up/README.md) | 英文操作指南：即時 AnyGrasp 夾取、啟動順序、TCP、參數、失敗處理與結束碼。 |
+| [ur3_pick_up/README.zh-TW.md](ur3_pick_up/README.zh-TW.md) | 繁體中文操作指南：即時 AnyGrasp 夾取、啟動順序、TCP、參數、失敗處理與結束碼。 |
 | [ur3_pick_up/config/grasp_tool.example.json](ur3_pick_up/config/grasp_tool.example.json) | Robotiq 工具設定範本：tool0、沿用程式 TCP 偏移、抓取軸向對應與最大開口 0.085 m。 |
 | [ur3_pick_up/package.xml](ur3_pick_up/package.xml) | ROS 套件名稱、版本、授權與建置／執行相依宣告。 |
 | [ur3_pick_up/resource/ur3_pick_up](ur3_pick_up/resource/ur3_pick_up) | ament 索引的套件辨識標記；供 ROS 2 找到套件，空檔案也必須保留。 |
@@ -203,8 +201,8 @@
 | [ur3_pick_up/setup.py](ur3_pick_up/setup.py) | 註冊 pick_up 指令，安裝工具設定、容器推論 worker 與雙語 README。 |
 | [ur3_pick_up/ur3_pick_up/__init__.py](ur3_pick_up/ur3_pick_up/__init__.py) | 標示即時夾取 Python 套件。 |
 | [ur3_pick_up/ur3_pick_up/anygrasp_input.py](ur3_pick_up/ur3_pick_up/anygrasp_input.py) | 解析與驗證 AnyGrasp／GraspNet 候選及工具設定，處理深度、軸向與 TCP 姿態轉換。 |
-| [ur3_pick_up/ur3_pick_up/anygrasp_task.py](ur3_pick_up/ur3_pick_up/anygrasp_task.py) | 串接擷取、推論與候選排序，依序嘗試可規劃姿態，確認後執行夾取與返回 home／開爪。 |
+| [ur3_pick_up/ur3_pick_up/anygrasp_task.py](ur3_pick_up/ur3_pick_up/anygrasp_task.py) | 串接擷取、推論與候選排序，依序嘗試可規劃姿態，確認後執行夾取、返回記錄的起始位置並等候放爪確認。 |
 | [ur3_pick_up/ur3_pick_up/camera_capture.py](ur3_pick_up/ur3_pick_up/camera_capture.py) | 接收本次新的 PointCloud2，檢查時間與 frame，取得點雲對應的 TF 快照。 |
 | [ur3_pick_up/ur3_pick_up/docker_client.py](ur3_pick_up/ur3_pick_up/docker_client.py) | 檢查與啟動既有容器，透過檔案與 docker cp／exec 送出推論請求並讀回結果。 |
-| [ur3_pick_up/ur3_pick_up/live_input.py](ur3_pick_up/ur3_pick_up/live_input.py) | 點雲解碼、座標轉換、工作區／體素／點數篩選、候選排序及固定相機 TF 一致性檢查。 |
+| [ur3_pick_up/ur3_pick_up/live_input.py](ur3_pick_up/ur3_pick_up/live_input.py) | 點雲解碼、座標轉換、體素／點數篩選、圈選遮罩映射、候選排序及固定相機 TF 一致性檢查。 |
 | [ur3_pick_up/ur3_pick_up/pick_up.py](ur3_pick_up/ur3_pick_up/pick_up.py) | pick_up 入口、ROS 參數、MoveIt 規劃／執行、TCP／路徑標記與 Robotiq socket 控制。 |

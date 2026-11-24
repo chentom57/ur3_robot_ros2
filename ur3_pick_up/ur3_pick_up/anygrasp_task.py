@@ -144,15 +144,15 @@ def run_anygrasp(app):
             raise ValueError('Color image resolution changed during selection; restart the task and select again')
         app.snapshot_base_from_camera = base_from_camera
         point_mask = image_mask_to_point_mask(projection_points, selected_pixels, intrinsics)
-        stage = "Workspace cloud filtering"
-        points, mask = prepare_cloud(raw_points, base_from_camera, app.workspace,
+        stage = "Point cloud filtering"
+        points, mask = prepare_cloud(raw_points,
             target_mask=point_mask, voxel_size=app.settings['voxel_size'], max_points=app.settings['max_points'],
             max_depth=app.settings['max_camera_depth'], min_roi_points=app.settings['min_roi_points'])
-        print(f'Sending {len(points)} scene points; {int(mask.sum())} selected-object points are inside the workspace.', flush=True)
+        print(f'Sending {len(points)} scene points; {int(mask.sum())} points are inside the selected image region.', flush=True)
         stage = "AnyGrasp Docker inference"
         candidates = client.infer(points, mask, DISPLAY_FRAME, stamp, base_from_camera, app.max_opening)
         stage = "Candidate pose filtering"
-        ranked = ranked_candidates(candidates, base_from_camera, app.workspace, app.max_opening)
+        ranked = ranked_candidates(candidates, app.max_opening)
         stage = "Candidate outbound/return-to-start planning"
         outbound, returning = plan_ranked_poses(app, ranked, base_from_camera)
         if outbound is None or returning is None:

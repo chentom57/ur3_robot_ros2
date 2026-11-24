@@ -14,7 +14,6 @@ def generate_launch_description():
     virtual_table_z = LaunchConfiguration("virtual_table_z")
     launch_camera = LaunchConfiguration("launch_camera")
     launch_rviz = LaunchConfiguration("launch_rviz")
-    workspace_enabled = LaunchConfiguration("workspace_enabled")
     launch_camera_condition = PythonExpression(
         [
             "'",
@@ -70,14 +69,6 @@ def generate_launch_description():
         launch_arguments={"pointcloud.enable": "true"}.items(),
     )
 
-    workspace = Node(
-        package="ur3_moveit_scene",
-        executable="workspace_preview",
-        name="ur3_workspace_preview",
-        condition=IfCondition(workspace_enabled),
-        output="log",
-    )
-
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -112,13 +103,6 @@ def generate_launch_description():
                 choices=["true", "false"],
                 description="Launch MoveIt RViz",
             ),
-            DeclareLaunchArgument(
-                "workspace_enabled",
-                default_value="true",
-                choices=["true", "false"],
-                description="Show the workspace volume in RViz for physical and mock hardware",
-            ),
-            workspace,
             driver,
             moveit,
             camera,

@@ -3,12 +3,7 @@ import re
 
 import numpy as np
 from .anygrasp_input import rigid_transform
-from ur3_moveit_scene.workspace import Workspace
-
-
-
 def validate_settings(s):
-    Workspace(s['workspace_min'], s['workspace_max'])
     for key in ('cloud_timeout', 'cloud_max_age', 'voxel_size', 'max_camera_depth',
                 'inference_timeout', 'gripper_height'):
         if not np.isfinite(s[key]) or s[key] <= 0:
@@ -69,10 +64,6 @@ def decode_xyz(msg):
     return np.column_stack(columns).astype(np.float32)
 
 
-def transform_points(points, transform):
-    t = rigid_transform(transform)
-    return np.asarray(points) @ t[:3, :3].T + t[:3, 3]
-
 
 def image_mask_to_point_mask(points, image_mask, intrinsics):
     """Project camera-frame cloud points into the raw color image mask."""
@@ -109,7 +100,7 @@ def image_mask_to_point_mask(points, image_mask, intrinsics):
     return mask
 
 
-def prepare_cloud(points, base_from_camera, workspace, *, target_mask=None, voxel_size=.005,
+def prepare_cloud(points, *, target_mask=None, voxel_size=.005,
                   max_points=120000, max_depth=2., min_roi_points=50):
     points = np.asarray(points, dtype=np.float32)
     if points.ndim != 2 or points.shape[1] != 3:
@@ -132,28 +123,22 @@ def prepare_cloud(points, base_from_camera, workspace, *, target_mask=None, voxe
         selected = np.linspace(0, len(points)-1, max_points, dtype=int)
         points = points[selected]
         target_mask = target_mask[selected]
-    mask = target_mask & workspace.contains(transform_points(points, base_from_camera))
+    mask = target_mask
     if np.count_nonzero(mask) < min_roi_points:
-        raise ValueError(f'Only {np.count_nonzero(mask)} selected-target points inside workspace; '
+        raise ValueError(f'Only {np.count_nonzero(mask)} selected-target points remain; '
                          f'require {min_roi_points}. Expand the selection or check the object view. '
                          'No inference requested.')
     return np.ascontiguousarray(points, dtype=np.float32), mask
 
 
-def ranked_candidates(candidates, base_from_camera, workspace, max_opening):
+def ranked_candidates(candidates, max_opening):
     """Return valid pose indices/candidates in descending score order."""
     valid = []
     for i, c in enumerate(candidates):
-        # Both the raw grasp origin and insertion-depth-adjusted TCP must be
-        # inside. The compensated tool0 origin is allowed outside this box.
-        endpoints = transform_points(np.array([c.translation,
-            c.translation + c.depth * c.rotation[:, 0]]), base_from_camera)
-        if c.width > max_opening or not workspace.contains(endpoints).all():
-            continue
         if c.width <= max_opening:
             valid.append((i, c))
     if not valid:
-        raise ValueError('No candidate has a valid opening and grasp/TCP inside the workspace')
+        raise ValueError('No candidate is within the configured gripper opening')
     return sorted(valid, key=lambda pair: pair[1].score, reverse=True)
 
 

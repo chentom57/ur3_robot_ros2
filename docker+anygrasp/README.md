@@ -353,7 +353,7 @@ This workflow transfers files with `docker cp`; no bind-mount setup is required.
 
 ## Live camera integration with pick_up
 
-The host `ur3_pick_up` package captures a new PointCloud2, requests inference in the existing `anygrasp-fixed` container, and tries valid poses by descending score within a base_link +Y workspace and selects the first pose with successful outbound and home plans. SDK dependencies, license and weights stay inside Docker. ROS is not required inside the container. Per-request worker/cloud files are copied in and results copied out, without recreating the container or changing its MAC.
+The host `ur3_pick_up` package captures a new PointCloud2, maps the manually selected image region to cloud points, requests inference in the existing `anygrasp-fixed` container, filters by gripper opening, and tries candidates by score until outbound and return plans succeed. SDK dependencies, license and weights stay inside Docker. ROS is not required inside the container. Per-request worker/cloud files are copied in and results copied out, without recreating the container or changing its MAC.
 
 Start bringup and one calibration publisher first, then run in one host terminal:
 
@@ -364,7 +364,7 @@ sudo -v
 ros2 run ur3_pick_up pick_up
 ```
 
-Append `--ros-args -p plan_only:=true` for inference/planning without any motion. Default bounds are X=[−0.30,+0.30], Y=[0,+0.60], Z=[0.02,0.60] m, displayed in RViz. See the [pick_up guide](../ur3_pick_up/README.md) for parameters and execution confirmations. Request logs are retained in `~/anygrasp_docker/exchange/`.
+Append `--ros-args -p plan_only:=true` for inference/planning without any motion. See the [pick_up guide](../ur3_pick_up/README.md) for parameters and execution confirmations. Request logs are retained in `~/anygrasp_docker/exchange/`.
 
 <a id="file-inventory"></a>
 ## File inventory

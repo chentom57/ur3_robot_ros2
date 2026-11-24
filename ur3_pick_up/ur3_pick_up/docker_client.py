@@ -61,8 +61,7 @@ class DockerClient:
         remote = '/tmp/ur3_anygrasp_' + request_id
         np.savez_compressed(job / 'cloud.npz', points=points, region=region,
             request_id=np.array(request_id), frame_id=np.array(frame_id), stamp=np.array(stamp, dtype=np.int64))
-        (job / 'capture.json').write_text(json.dumps(dict(base_from_camera=base_from_camera.tolist(),
-            workspace_min=self.s['workspace_min'], workspace_max=self.s['workspace_max'])))
+        (job / 'capture.json').write_text(json.dumps(dict(base_from_camera=base_from_camera.tolist())))
         print(f'Point cloud / inference records: {job}', flush=True)
         self.command(['exec', self.container, 'mkdir', '-p', remote])
         try:

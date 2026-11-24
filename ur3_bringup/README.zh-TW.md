@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-`ur3_bringup` 啟動 UR3 driver、MoveIt、RViz、共用虛擬碰撞桌面、工作區預覽，以及可選的 RealSense 相機。
+`ur3_bringup` 啟動 UR3 driver、MoveIt、RViz、共用虛擬碰撞桌面，以及可選的 RealSense 相機。
 
 官方 UR driver 與 `ur_moveit_config` 從 GitHub 取得。本套件的 `launch/moveit.launch.py` 引入官方 MoveIt，再加入桌面與隨附的 `config/moveit.rviz`，不需修改官方 driver。可透過 bringup 啟動，或先啟動 driver 後分開執行：
 
@@ -10,7 +10,7 @@
 ros2 launch ur3_bringup moveit.launch.py ur_type:=ur3
 ```
 
-此整合會停用官方 launch 的 RViz，以及已客製化官方 launch 可能加入的桌面，再各啟動一份本專案的 RViz 與桌面發布器。RViz 設定包含手臂、場景、工作區／路徑標記、彩色影像、點雲與相機／base 三軸。
+此整合會停用官方 launch 的 RViz，以及已客製化官方 launch 可能加入的桌面，再各啟動一份本專案的 RViz 與桌面發布器。RViz 設定包含手臂、場景、目標／路徑標記、彩色影像、點雲與相機／base 三軸。
 
 ## 安裝與建置
 
@@ -24,7 +24,7 @@ ros2 launch ur3_bringup moveit.launch.py ur_type:=ur3
 | `ur3_moveit_scene` | 已隨本專案提供。 |
 | MoveIt、RViz 與 launch 相依 | 主機講義第 4 節的 rosdep 指令統一安裝。 |
 
-整份專案的建置也需要 `easy_handeye2_msgs`，來源取得方式已列在主機講義。工作區預覽與 mock bringup 的執行不需要校正結果、Docker 或 AnyGrasp 授權。每個新終端都先 source ROS 與工作區。
+整份專案的建置也需要 `easy_handeye2_msgs`，來源取得方式已列在主機講義。mock bringup 的執行不需要校正結果、Docker 或 AnyGrasp 授權。每個新終端都先 source ROS 與工作區。
 
 ## 實體手臂
 
@@ -53,19 +53,9 @@ ros2 launch ur3_bringup bringup.launch.py \
 
 Driver 使用 mock hardware，不連接實體手臂。`launch_camera:=auto` 時，模擬硬體模式會自動停用相機啟動。
 
-## RViz 工作區
+## RViz 顯示
 
-實體與模擬硬體模式都預設啟動獨立工作區預覽。只啟動 bringup 就會發布 MarkerArray，不需要相機、手眼校正或 Docker，也不會因此執行手臂／夾爪任務。
-
-範圍使用 `base_link`：X=[−0.30, +0.30]、Y=[0.00, +0.60]、Z=[+0.02, +0.60] m；水平大小 60×60 cm，朝 base_link 的 +Y。
-
-RViz 的 Fixed Frame 設 `base_link`。目前預設的 MarkerArray 顯示會透過 `/ur3_pick_up/target_and_path_markers` 收到框線、半透明盒與文字；也可新增 **MarkerArray**，Topic 選 **`/ur3_pick_up/workspace`**。這是選取範圍預覽，不是碰撞障礙物或可達性保證。
-
-任務節點發布標記時，預覽節點會讓出發布，顯示任務實際使用的範圍；任務結束後恢復 bringup 的預覽範圍。既有 bringup 要載入這個節點，需先建置更新的 `ur3_moveit_scene`、`ur3_bringup`，再重開 bringup。
-
-```bash
-ros2 topic info /ur3_pick_up/workspace
-```
+RViz 的 Fixed Frame 設為 `base_link`。隨附設定會顯示手臂、規劃場景、共用碰撞桌面、目標與規劃路徑、相機影像、點雲及 TF。目標／路徑 MarkerArray topic 為 `/ur3_pick_up/target_and_path_markers`。
 
 ## Launch 參數
 
@@ -79,7 +69,6 @@ ros2 topic info /ur3_pick_up/workspace
 | `virtual_table_z` | `-0.01` | 桌面頂面在 `base_link` 的高度，公尺，需符合實際安裝。 |
 | `launch_camera` | `auto` | `auto`：實機開相機、模擬不開；`true`／`false` 強制指定。 |
 | `launch_rviz` | `true` | 啟動 MoveIt RViz。 |
-| `workspace_enabled` | `true` | 實體／模擬模式都發布工作區預覽；設 `false` 停用預覽節點。 |
 
 由本套件啟動的相機使用 `pointcloud.enable=true`，本套件沒有獨立的點雲 launch 選項。桌面為 4×4 m、厚 0.02 m 的碰撞板，頂面在 `virtual_table_z`，物件 ID 為 `ur3_virtual_table_collision`。
 
@@ -139,7 +128,7 @@ ros2 topic list
 | [CMakeLists.txt](CMakeLists.txt) | 宣告 ament_cmake 套件，安裝 launch、RViz 設定及雙語 README。 |
 | [README.md](README.md) | 英文操作指南：實機／mock 啟動、launch 參數、RViz、SDK 排查與狀態檢查。 |
 | [README.zh-TW.md](README.zh-TW.md) | 繁體中文操作指南：實機／mock 啟動、launch 參數、RViz、SDK 排查與狀態檢查。 |
-| [config/moveit.rviz](config/moveit.rviz) | RViz 顯示設定：手臂、規劃場景、桌面、工作區／路徑標記、影像、點雲與 TF。 |
-| [launch/bringup.launch.py](launch/bringup.launch.py) | 整合 UR driver、MoveIt、RViz、桌面、工作區預覽與相機；支援實機與 mock 模式。 |
+| [config/moveit.rviz](config/moveit.rviz) | RViz 顯示設定：手臂、規劃場景、桌面、目標／路徑標記、影像、點雲與 TF。 |
+| [launch/bringup.launch.py](launch/bringup.launch.py) | 整合 UR driver、MoveIt、RViz、桌面與相機；支援實機與 mock 模式。 |
 | [launch/moveit.launch.py](launch/moveit.launch.py) | 引入官方 MoveIt launch，統一管理本專案的 RViz 與碰撞桌面，避免重複啟動。 |
 | [package.xml](package.xml) | ROS 套件名稱、版本、授權與建置／執行相依宣告。 |

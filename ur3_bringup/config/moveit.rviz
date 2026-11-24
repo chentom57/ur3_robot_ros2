@@ -43,7 +43,7 @@ Visualization Manager:
         Show Robot Visual: true
         Show Robot Collision: false
     - Class: rviz_default_plugins/MarkerArray
-      Name: Workspace and paths
+      Name: Target and paths
       Enabled: true
       Topic:
         Value: /ur3_pick_up/target_and_path_markers

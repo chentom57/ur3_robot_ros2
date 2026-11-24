@@ -19,7 +19,6 @@ setup(
     entry_points={
         "console_scripts": [
             "virtual_table = ur3_moveit_scene.virtual_table:main",
-            "workspace_preview = ur3_moveit_scene.workspace_preview:main",
         ],
     },
 )

@@ -365,7 +365,7 @@ sudo docker exec -it -w /opt/anygrasp_sdk/grasp_detection anygrasp-fixed \
 
 ## 即時相機與 pick_up 對接
 
-主機的 `ur3_pick_up` 會自動取得新 PointCloud2，傳入既有 `anygrasp-fixed` 推論，再以 base_link 的 +Y 工作區篩選 pose，依分數由高到低嘗試，選擇第一個去程與返回 home 都能規劃成功的姿態。SDK、license 與權重維持在容器；不需把 ROS 安裝進容器。每次傳入 worker／點雲並取回結果，不需重新建立容器或更換 MAC。
+主機的 `ur3_pick_up` 會自動取得新 PointCloud2，將人工圈選影像區域映射至點雲，傳入既有 `anygrasp-fixed` 推論，依夾爪開口篩選後按分數嘗試候選，直到去程及返回路徑都規劃成功。SDK、license 與權重維持在容器；不需把 ROS 安裝進容器。每次傳入 worker／點雲並取回結果，不需重新建立容器或更換 MAC。
 
 先啟動 bringup 與唯一手眼 publisher，然後在主機同一終端：
 
@@ -376,7 +376,7 @@ sudo -v
 ros2 run ur3_pick_up pick_up
 ```
 
-只推論與規劃、完全不移動：加 `--ros-args -p plan_only:=true`。工作區預設 X=[−0.30,+0.30]、Y=[0,+0.60]、Z=[0.02,0.60] m，會在 RViz 顯示。完整參數及執行確認流程見 [pick_up 操作說明](../ur3_pick_up/README.zh-TW.md)。推論紀錄保留於 `~/anygrasp_docker/exchange/`。
+只推論與規劃、完全不移動：加 `--ros-args -p plan_only:=true`。完整參數及執行確認流程見 [pick_up 操作說明](../ur3_pick_up/README.zh-TW.md)。推論紀錄保留於 `~/anygrasp_docker/exchange/`。
 
 <a id="file-inventory"></a>
 ## 檔案名稱與用途

@@ -2,7 +2,7 @@
 
 [繁體中文](README.zh-TW.md)
 
-`ur3_bringup` starts the UR3 driver, MoveIt, RViz, the shared virtual collision table, a workspace preview, and optionally the RealSense camera.
+`ur3_bringup` starts the UR3 driver, MoveIt, RViz, the shared virtual collision table, and optionally the RealSense camera.
 
 The official UR driver and `ur_moveit_config` are obtained from GitHub. The project's `launch/moveit.launch.py` includes upstream MoveIt and adds the table and RViz configuration from `config/moveit.rviz`; it requires no edits to the official driver. Launch it through bringup, or run it separately after starting the driver:
 
@@ -10,7 +10,7 @@ The official UR driver and `ur_moveit_config` are obtained from GitHub. The proj
 ros2 launch ur3_bringup moveit.launch.py ur_type:=ur3
 ```
 
-The wrapper disables upstream RViz and any table added to a customized upstream launch, then starts one project RViz and one table publisher. Its RViz configuration includes the robot, scene, workspace/path markers, color image, point cloud and camera/base axes.
+The wrapper disables upstream RViz and any table added to a customized upstream launch, then starts one project RViz and one table publisher. Its RViz configuration includes the robot, scene, target/path markers, color image, point cloud and camera/base axes.
 
 ## Installation and build
 
@@ -24,7 +24,7 @@ Complete Sections 1–4 of the [host/source setup guide](../ROS2+driver/ur3_ros2
 | `ur3_moveit_scene` | Included in this project. |
 | MoveIt, RViz and launch dependencies | Installed together by rosdep in host guide Section 4. |
 
-Building the complete project also needs `easy_handeye2_msgs`, whose source checkout is covered in the host guide. Running the workspace preview or mock bringup does not require calibration, Docker or an AnyGrasp license. Source ROS and the workspace in each new terminal.
+Building the complete project also needs `easy_handeye2_msgs`, whose source checkout is covered in the host guide. Running the mock bringup does not require calibration, Docker or an AnyGrasp license. Source ROS and the workspace in each new terminal.
 
 ## Physical robot
 
@@ -53,19 +53,9 @@ ros2 launch ur3_bringup bringup.launch.py \
 
 This runs the driver with mock hardware rather than connecting to a physical robot. With `launch_camera:=auto`, mock hardware automatically disables the camera.
 
-## RViz workspace
+## RViz displays
 
-Both physical and mock hardware modes start an independent workspace preview by default. Bringup alone publishes its MarkerArray; camera, hand-eye calibration and Docker are unnecessary for this display, and the preview executes no arm/gripper task.
-
-Bounds are in `base_link`: X=[−0.30, +0.30], Y=[0.00, +0.60], Z=[+0.02, +0.60] m. The horizontal area is 60×60 cm toward base_link +Y.
-
-Set RViz Fixed Frame to `base_link`. The default MarkerArray display receives the edges, translucent box and label through `/ur3_pick_up/target_and_path_markers`. Alternatively, add **MarkerArray** and select **`/ur3_pick_up/workspace`**. This is a selection preview, not a collision obstacle or reachability guarantee.
-
-When a task publishes markers, the preview releases its publishers so the task's actual bounds are displayed. Bringup's preview resumes after the task exits. An already-running bringup must be restarted after building the updated `ur3_moveit_scene` and `ur3_bringup` packages to load the new node.
-
-```bash
-ros2 topic info /ur3_pick_up/workspace
-```
+Set RViz Fixed Frame to `base_link`. The supplied configuration displays the robot, planning scene, shared collision table, target and planned paths, camera image, point cloud and TF. The target/path MarkerArray is published on `/ur3_pick_up/target_and_path_markers`.
 
 ## Launch arguments
 
@@ -79,7 +69,6 @@ Pass launch arguments as `name:=value`, without `--ros-args -p`.
 | `virtual_table_z` | `-0.01` | Table top-surface height in `base_link`, meters. Set to the physical installation. |
 | `launch_camera` | `auto` | `auto`: camera on with physical hardware, off with mock hardware; `true`/`false` force the choice. |
 | `launch_rviz` | `true` | Start MoveIt RViz. |
-| `workspace_enabled` | `true` | Publish the workspace preview in physical/mock modes; set `false` to disable the preview node. |
 
 When launched here, the camera receives `pointcloud.enable=true`. There is no separate point-cloud launch argument in this package. The table is a 4×4 m slab, 0.02 m thick; its top is at `virtual_table_z`. Its object ID is `ur3_virtual_table_collision`.
 
@@ -139,7 +128,7 @@ Every source file in this folder and its subfolders is listed below, relative to
 | [CMakeLists.txt](CMakeLists.txt) | Define the ament_cmake package and install launch files, RViz configuration and bilingual READMEs. |
 | [README.md](README.md) | English guide: Physical/mock startup, launch parameters, RViz, SDK troubleshooting and status checks. |
 | [README.zh-TW.md](README.zh-TW.md) | Traditional Chinese guide: Physical/mock startup, launch parameters, RViz, SDK troubleshooting and status checks. |
-| [config/moveit.rviz](config/moveit.rviz) | RViz displays for the robot, planning scene, table, workspace/path markers, image, cloud and TF. |
-| [launch/bringup.launch.py](launch/bringup.launch.py) | Combine UR driver, MoveIt, RViz, table, workspace preview and camera for physical/mock hardware. |
+| [config/moveit.rviz](config/moveit.rviz) | RViz displays for the robot, planning scene, table, target/path markers, image, cloud and TF. |
+| [launch/bringup.launch.py](launch/bringup.launch.py) | Combine UR driver, MoveIt, RViz, table and camera for physical/mock hardware. |
 | [launch/moveit.launch.py](launch/moveit.launch.py) | Include upstream MoveIt and manage the project RViz/collision table without duplicate launches. |
 | [package.xml](package.xml) | ROS package identity, version, license and build/runtime dependency declarations. |
