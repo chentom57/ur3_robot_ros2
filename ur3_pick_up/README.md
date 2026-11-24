@@ -2,7 +2,7 @@
 
 [繁體中文](README.zh-TW.md)
 
-`ros2 run ur3_pick_up pick_up` captures a fresh camera cloud, calls AnyGrasp in the existing Docker container, tries valid workspace poses by descending score, and selects the first pose with successful outbound and return-to-home plans. Each invocation captures one scene and executes at most one pose. Arm motion still requires confirmation.
+`ros2 run ur3_pick_up pick_up` records the arm's current joint position as the task start/return target, then opens a live color view where two clicks define opposite corners of a rectangle around one target object. After selection, the GUI stays open through inference, planning and motion. It asks for pick confirmation and, after the arm returns to the recorded start position, waits for a GUI release command before opening the gripper. The rectangle mask maps onto cloud points and steers AnyGrasp candidate generation; the full scene cloud remains available for collision checking. Valid workspace poses are ranked by score and tried until outbound and return-to-start paths both plan.
 
 ## Workspace and RViz
 
@@ -83,7 +83,7 @@ sudo -v
 ros2 run ur3_pick_up pick_up --ros-args -p plan_only:=true
 ```
 
-Camera, calibration TF, MoveIt and the table are still required. This captures and plans from the current arm state, skipping initial home motion.
+Camera, calibration TF, MoveIt and the table are still required. The arm stays in its current position. The program records its joint state at startup and uses it as the planning start and final return target.
 
 ## Preflight checks and operator prompts
 
@@ -101,26 +101,28 @@ Verify that `scaled_joint_trajectory_controller` is `active`, the cloud has a pu
 
 | Stage | Display or prompt | Operator action and result |
 | --- | --- | --- |
-| Initial home planned | `Move the arm to initial state 'home'? Enter y:` | Inspect the initial RViz path. Enter `y` to move; any other answer cancels the task. |
-| Home reached | Fresh capture, scene/ROI point counts and log directory | Wait for one Docker inference. No candidate index entry is required. |
-| Inference and filtering completed | Candidate index, score, width and camera-coordinate TCP | Valid poses are tried by descending score until both outbound and return-to-home plans succeed for one pose. |
-| Both paths planned | `Confirm arm/gripper execution? Enter y:` | Inspect target orientation and both paths. Enter `y` to start the candidate task; any other answer cancels later actions. Initial home may already have completed. |
-| Completed | Home arrival and gripper release result | The invocation ends. To grasp another object, run the launch command again for a fresh capture and inference. |
+| Startup | Record the current joint state as the start and return target | The arm does not move at startup. |
+| Ready | A window shows the live RGB stream | Click two opposite corners of a rectangle; `Enter` accepts, right click or `U` undoes a point, `R` resets, and `Esc` cancels. The window stays open. A fresh synchronized image/cloud pair is captured after acceptance. |
+| Selection accepted | Show selected-object/workspace counts, scene count and exchange path | The selected region intersected with workspace steers candidates; the full cloud remains for collision checking. |
+| Inference and filtering completed | Candidate index, score, width and camera-coordinate TCP | Valid poses are tried by descending score until outbound and return-to-start plans succeed for one pose. |
+| Both paths planned | GUI buttons `EXECUTE PICK` and `CANCEL` | Inspect target orientation and both paths. Confirm in the GUI (or press `Y`) to start; cancel (or press `N`) to stop. The arm remains at the recorded startup position until confirmed execution. |
+| Returned to start | GUI buttons `OPEN GRIPPER / RELEASE` and `ABORT / KEEP CLOSED` | The gripper remains closed while awaiting a decision. Confirm release in the GUI (or press `O`); abort (or press `Q`) leaves the gripper closed. The GUI closes after release finishes or the task stops. |
+| Completed | Return to the recorded startup position and gripper release result | The invocation ends. To grasp another object, run the command again for a fresh capture and inference. |
 | Any stage fails | Stage name and reason | Later steps stop. Inspect the message and exchange logs, resolve the cause and relaunch. |
 
-`plan_only:=true` skips both execution prompts and initial home motion. It still attempts cloud acquisition, Docker inference and planning from the current arm state.
+`plan_only:=true` skips grasp execution. It still records the startup joint state, then attempts cloud acquisition, GUI selection, Docker inference and planning without moving the arm.
 
 ## Task sequence
 
 1. Display the workspace and check the shared table, container and SDK/checkpoint paths.
-2. Plan initial home, display its path and ask `Move the arm to initial state 'home'? Enter y:`.
-3. After arrival, wait 0.5 s and capture a new PointCloud2. Accept only samples captured after acquisition began and within `cloud_max_age`.
-4. Use the actual message `header.frame_id` and capture-time TF to transform into `camera_color_optical_frame`. Use the same capture-time camera-to-base TF for workspace selection; do not relabel coordinates.
-5. Remove invalid/out-of-depth points, voxel downsample and cap the point count. Keep surrounding scene points for SDK gripper collision checks and send a workspace boolean mask. Reject insufficient ROI points, including empty masks: the SDK treats an all-false mask as unrestricted steering.
-6. Run one inference with `dense_grasp=false`, `collision_detection=true` and the workspace `region_steering` mask, followed by NMS and score sorting. SAM is unnecessary, but object names are not recognized.
-7. Validate opening, rotations and bounds again on the host. Both the raw grasp center and depth-adjusted TCP must be inside the workspace. Sort valid poses by descending score and plan both outbound and return-to-home paths for each pose. If either segment fails, try the next-highest-scoring pose. Select the first pose for which both segments succeed. If every valid pose fails, print `All candidate poses failed to plan.` and end the candidate task. These planning attempts send no arm or gripper commands.
-8. All poses use the same captured cloud and capture-time TF. Check camera TF before each attempt and after selecting a pose. Only after both plans succeed for the selected pose, ask `Confirm arm/gripper execution? Enter y:`. Check TF again after confirmation; a change above 3 mm or 0.5° cancels the task.
-9. Move to candidate → open POS=0 → close POS=255 → return home → open POS=0 to release the object. Failures identify their stage and stop later steps. A gripper failure does not trigger an automatic return. Release is commanded only after successful return-to-home execution. A return failure skips release. If opening at home stops on contact before reaching the open position, the release stage reports failure.
+2. Record the current joint state as the task start and return target. The arm does not move before target selection or planning.
+3. Wait for a fresh color image and PointCloud2 pair (at most 0.15 seconds apart and no older than `cloud_max_age`), and receive color CameraInfo.
+4. Click two opposite corners of a rectangle around one target object in the live OpenCV view. After Enter, acquire a fresh synchronized image/cloud pair and CameraInfo. Camera intrinsics project cloud points into the raw image, and the selected image mask selects the corresponding points; cloud and image resolutions/layouts need not match. Cancel or too few selected points stops processing. This manual mask is not semantic segmentation; keep the arm and nearby objects outside the rectangle.
+5. Use the actual cloud `header.frame_id` and capture-time TF to transform into `camera_color_optical_frame`. Filter invalid points/depth, voxel-downsample and cap the full scene. Intersect the selected-object mask with workspace for candidate generation while retaining the full scene for SDK collision checking.
+6. Run one inference with `dense_grasp=false`, `collision_detection=true` and `region_steering=selected pixel mask mapped to cloud points`, followed by NMS and score sorting. This is manual region selection; SAM is not installed or called.
+7. Validate opening, rotations and bounds again on the host. Both the raw grasp center and depth-adjusted TCP must be inside the workspace. Sort valid poses by descending score and plan both the outbound path and the return path to the recorded startup joint state. If either segment fails, try the next-highest-scoring pose. Select the first pose for which both segments succeed. If every valid pose fails, print a summary with success/failure counts, each failed candidate's stage and confirmation that no grasp trajectory was executed. These planning attempts send no arm or gripper commands.
+8. All poses use the same captured cloud and capture-time TF. Check camera TF before each attempt and after selecting a pose. Only after both plans succeed for the selected pose, ask for confirmation in the still-open camera GUI. Check TF again after confirmation; a change above 3 mm or 0.5° cancels the task.
+9. After execution confirmation, open POS=0 at the recorded startup position and verify the gripper is fully open before arm motion. Move to the candidate and close POS=255 at the grasp pose, then return to the recorded startup position. Keep the gripper closed and wait for the operator to choose `OPEN GRIPPER / RELEASE` in the GUI; only then command POS=0 to release. Failures identify their stage and stop later steps. A gripper failure does not trigger an automatic return. If the gripper cannot fully open before outbound motion, the arm does not move. A return failure skips the release prompt. If opening at the startup position stops on contact before reaching the open position, the release stage reports failure. The GUI closes after release completes or the workflow aborts.
 
 The result describes a stationary captured scene. Keep the camera and objects still during inference and confirmation. This workflow assumes a fixed eye-on-base camera. SDK collision filtering concerns grasp geometry in the input cloud; it does not insert that cloud into MoveIt's full-arm collision scene. Arm paths use the existing MoveIt scene.
 
@@ -152,6 +154,8 @@ ros2 run ur3_pick_up pick_up --ros-args \
 | --- | --- | --- |
 | `workspace_min` / `workspace_max` | XYZ limits above | Three-element bounds in base_frame, meters. |
 | `pointcloud_topic` | `/camera/camera/depth/color/points` | New PointCloud2 source, transformed from its true header frame. |
+| `color_image_topic` | `/camera/camera/color/image_raw` | Raw color image within 0.15 seconds of cloud capture. |
+| `color_camera_info_topic` | `/camera/camera/color/camera_info` | Camera intrinsics used to project cloud points into the raw color image. |
 | `cloud_timeout` / `cloud_max_age` | `10.0` / `1.0` | Acquisition timeout / maximum sample age, seconds. |
 | `voxel_size` | `0.005` | Voxel spacing, meters. |
 | `max_points` / `min_roi_points` | `120000` / `50` | Full scene point cap / minimum ROI count after downsampling. |
@@ -190,10 +194,11 @@ Downsampling changes small-object detail and grasp predictions. The remaining wo
 ## Troubleshooting and verification
 
 - No cloud: check bringup, camera connection and the actual topic with `ros2 topic list`.
+- `Truncated PointCloud2 data or invalid row_step`: the decoder accepts a packed single-row cloud when its payload contains every point, even if the publisher leaves a stale larger `row_step`. For other malformed layouts, the error reports width, height, point step, row step and payload size; inspect the active publisher/topic.
 - Empty workspace: inspect the RViz box, cloud alignment, calibration and TF. Changing only a frame string does not transform points.
 - Docker permission denied / sudo requires a password: run `sudo -v` in the same terminal before launching. Reauthenticate if the credential expired during a long wait.
 - CUDA OOM: reduce `max_points`, increase `voxel_size` or reduce `max_camera_depth`. An empty resulting ROI still stops inference.
-- Outbound/return planning failure: try the next valid pose by score until one succeeds or all are exhausted. Exhaustion prints `All candidate poses failed to plan.` Initial home may already have completed. Once execution has begun after confirmation, an execution failure stops later steps without trying other poses.
+- Outbound/return planning failure: try the next valid pose by score until one succeeds or all are exhausted. Exhaustion prints `All candidate poses failed to plan.` The arm remains at the recorded startup position until confirmed execution. Once execution has begun after confirmation, an execution failure stops later steps without trying other poses.
 - Exchange UUID directories retain `cloud.npz` (points, mask and capture metadata), `capture.json` (TF/bounds), `grasps.json` (successful response) and `inference.log`. Container temporary files are removed; periodically clean host logs yourself.
 - A Segmentation fault after `Deleting MoveItCpp` is an existing native cleanup issue; determine task status from individual stage results.
 
@@ -224,8 +229,9 @@ Every source file in this folder and its subfolders is listed below, relative to
 | [setup.py](setup.py) | Register pick_up and install tool settings, the container inference worker and bilingual READMEs. |
 | [ur3_pick_up/__init__.py](ur3_pick_up/__init__.py) | Python package marker for live picking. |
 | [ur3_pick_up/anygrasp_input.py](ur3_pick_up/anygrasp_input.py) | Parse/validate AnyGrasp/GraspNet candidates and tool settings; handle depth, axis mapping and TCP pose conversion. |
-| [ur3_pick_up/anygrasp_task.py](ur3_pick_up/anygrasp_task.py) | Coordinate capture/inference, try ranked plannable poses and execute confirmed picking, return home and release. |
+| [ur3_pick_up/anygrasp_task.py](ur3_pick_up/anygrasp_task.py) | Coordinate capture/inference, try ranked plannable poses and execute confirmed picking, return to the recorded startup position and release. |
 | [ur3_pick_up/camera_capture.py](ur3_pick_up/camera_capture.py) | Receive a fresh PointCloud2, check timing/frame and capture its corresponding TF snapshot. |
 | [ur3_pick_up/docker_client.py](ur3_pick_up/docker_client.py) | Check/start the existing container and exchange inference requests/results through files and docker cp/exec. |
 | [ur3_pick_up/live_input.py](ur3_pick_up/live_input.py) | Decode/transform clouds, apply workspace/voxel/count filters, rank candidates and check fixed-camera TF consistency. |
 | [ur3_pick_up/pick_up.py](ur3_pick_up/pick_up.py) | pick_up entry point, ROS parameters, MoveIt planning/execution, TCP/path markers and Robotiq socket control. |
+| [ur3_pick_up/target_selection.py](ur3_pick_up/target_selection.py) | Persistent live-camera GUI for rectangle selection, pick confirmation and delayed gripper-release approval. |

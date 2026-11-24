@@ -14,6 +14,16 @@
 | `easy_handeye2` 與 `easy_handeye2_msgs` 0.5.0 | 通用校正服務隨專案提供；訊息來源依主機講義下載。 |
 | ArUco、TF 與 Python 函式庫 | 由 package.xml 宣告，交由主機講義的 rosdep 指令安裝。 |
 
+首次建置請依主機講義第 1～4 節完成工作區建置。之後若更新 `auto_calibration` 程式，在工作區重新建置此套件及其相依套件：
+
+```bash
+source /opt/ros/jazzy/setup.bash
+cd ~/ur3_ws
+colcon build --symlink-install --packages-up-to auto_calibration \
+  --cmake-args -DBUILD_TESTING=OFF
+source ~/ur3_ws/install/setup.bash
+```
+
 `auto_calibration` 負責 UR3 自動移動、tracker 啟動、流程確認與相機根座標 TF 發布；[easy_handeye2](../easy_handeye2/README.zh-TW.md)負責採樣、校正計算、儲存與手動 GUI。自動流程只啟動背景校正服務，不啟動手動 GUI。兩者不需 Docker、AnyGrasp 授權或權重。
 
 確認必要入口：
@@ -54,9 +64,9 @@ ros2 run auto_calibration calibrate
 
 啟動清理會停止原本獨立運作的校正 publisher；儲存後仍會詢問是否發布，回答 `y` 才重新發布。既有 RViz 可能保留先前收到的靜態 TF，停止 publisher 不等於清除所有 listener 的快取。
 
-程式會啟動 tracker，等待 `camera_color_optical_frame → marker_582`，再詢問 `Marker detected. Start automatic calibration? [y/n]:`。回答 `y` 代表開始自動移動與採樣；預檢後不會逐點再次詢問。
+程式會以亞像素角點細化及 `REPROJECTION_ERROR` 姿態選解策略啟動 tracker，等待 `camera_color_optical_frame → marker_582`，再詢問 `Marker detected. Start automatic calibration? [y/n]:`。回答 `y` 代表開始自動移動與採樣；預檢後不會逐點再次詢問。平面標記仍可能存在多解，重投影誤差策略不能保證排除所有穩定錯解。
 
-流程先清除 server 採樣清單並確認為零，再預規劃所有目標及返回起始姿態的路徑，通過後逐段重新規劃、執行。共 15 個樣本：工具各軸 ±20°、±10° 旋轉，以及手臂 base 各軸 +0.04 m 平移。每次移動後等待 1.5 秒再採樣，每個目標最多規劃 10 次。回到起始姿態後計算並儲存校正。這些動作設定是程式常數，沒有提供為 CLI 選項。
+流程先清除 server 採樣清單並確認為零，再預規劃所有目標。單點規劃失敗會記錄並略過，後續點仍會繼續；實際移動時規劃失敗也會略過該姿態。共規劃 20 點：工具座標 X 軸 ±35°，Y 軸 ±35°，Z 軸 ±40°，共 6 個單軸旋轉姿態；三組雙軸組合旋轉（每軸 ±25°）共 6 個姿態；再加 3 個沿工具 X/Y 平面均勻分布、各傾斜 50° 的姿態，以增加 marker 平面法向的方向變化；平移包含手臂 base 各軸 +0.10 m，以及沿 base X 軸相對起始位置 ±0.14 m 的前後兩點。每次移動後等待 1.5 秒再採樣；每個姿態由 Easy HandEye 連續取 10 次觀測，至少須有 9 次在 8 mm、8° 內一致，否則於原姿態重取，最多 3 次；marker 未偵測到或仍不穩定就略過該點。流程最後列出成功與略過的姿態編號，至少成功 16/20 點才會計算校正。計算前，eye-on-base 會用所有成功取樣的姿態檢查固定「工具→marker」變換：目前為診斷用途，跨姿態一致性閾值暫時放寬至 1,000,000 m 與 180°，讓所有採樣姿態通過此一致性檢查並參與計算。這只略過離群判定，不代表不一致的觀測因此變準；此校正結果僅供診斷。若所有姿態都穩定地符合另一組錯誤但一致的幾何關係，仍需外部基準確認真實方向。每個目標最多規劃 10 次。回到起始姿態後計算並儲存校正；若無法規劃回程會在摘要中標示。這些動作設定是程式常數，沒有提供為 CLI 選項。
 
 儲存後詢問 `Calibration saved. Start TF publishing? [y/n]:`。回答 `y` 會重讀該校正既有的 publisher，或啟動新的 publisher 並保持終端運作；回答 `n` 僅儲存。Ctrl+C 結束本流程管理的程序；獨立啟動的 publisher 不受此流程管理。
 
@@ -143,7 +153,7 @@ ros2 run tf2_ros tf2_echo base_link camera_color_optical_frame
 | [README.zh-TW.md](README.zh-TW.md) | 繁體中文操作指南：自動校正、啟動清理、參數、TF 發布及操作檢查。 |
 | [auto_calibration/__init__.py](auto_calibration/__init__.py) | 標示自動校正 Python 套件並提供套件簡介。 |
 | [auto_calibration/calibrate.py](auto_calibration/calibrate.py) | 自動校正入口；協調啟動清理、tracker、校正服務、確認提示、移動程序與 TF 發布。 |
-| [auto_calibration/motion.py](auto_calibration/motion.py) | 服務 client、15 點姿態生成、規劃診斷與重試、自動移動、樣本清零及計算／儲存流程。 |
+| [auto_calibration/motion.py](auto_calibration/motion.py) | 服務 client、20 點姿態生成、規劃診斷與重試、自動移動、樣本清零及計算／儲存流程。 |
 | [auto_calibration/publisher.py](auto_calibration/publisher.py) | 讀取校正檔，換算並發布相機根座標 TF，限制單一發布者並提供 reload 服務。 |
 | [auto_calibration/startup.py](auto_calibration/startup.py) | 辨識並停止舊校正與同一相機 tracker 程序，檢查 ROS 衝突與資源鎖，阻擋未清理完成的啟動。 |
 | [launch/publish.launch.py](launch/publish.launch.py) | 以校正名稱與相機根座標參數，啟動已儲存校正的 TF publisher。 |

@@ -8,6 +8,7 @@ from pathlib import Path
 import rclpy
 from easy_handeye2_msgs.srv import ComputeCalibration, SaveCalibration, TakeSample, RemoveSample
 from geometry_msgs.msg import PoseStamped
+from sensor_msgs.msg import JointState
 from moveit_msgs.msg import MoveItErrorCodes
 from moveit_msgs.srv import GetPositionIK, GetStateValidity
 from rclpy.duration import Duration
@@ -253,10 +254,17 @@ class AutomaticCalibration:
         self.node = Node("auto_calibration_motion")
         self.base_frame = base_frame
         self.tool_link = tool_link
-        self.rotation_delta_degrees = 20.0
-        self.translation_delta_meters = 0.04
+        self.rotation_delta_degrees = 35.0
+        self.translation_delta_meters = 0.10
         self.settle_seconds = 1.5
+        self.inter_pose_pause_seconds = 1.5
         self.max_planning_retries = 10
+        self._joint_state_received = False
+        self._joint_state_names = ()
+        self.joint_state_node = Node("auto_calibration_joint_state_readiness")
+        self._joint_state_subscription = self.joint_state_node.create_subscription(
+            JointState, "/joint_states", self._on_joint_state, 10
+        )
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self.node, spin_thread=True)
@@ -289,6 +297,28 @@ class AutomaticCalibration:
         )
         self.planning = self.robot.get_planning_component("ur_manipulator")
 
+    def _on_joint_state(self, message):
+        if len(message.name) >= 6 and len(message.position) >= 6:
+            self._joint_state_received = True
+            self._joint_state_names = tuple(message.name)
+
+    def wait_for_joint_states(self, timeout_sec=10.0):
+        """Do not start planning until the UR driver is publishing joint states."""
+        deadline = time.monotonic() + timeout_sec
+        while rclpy.ok() and not self._joint_state_received and time.monotonic() < deadline:
+            rclpy.spin_once(self.joint_state_node, timeout_sec=0.1)
+        if not self._joint_state_received:
+            raise RuntimeError(
+                f"No valid /joint_states message with six joints received within "
+                f"{timeout_sec:.0f} seconds. Confirm the UR3 is connected and the "
+                "driver is publishing /joint_states before starting calibration. "
+                "No motion or sampling has started."
+            )
+        self.node.get_logger().info(
+            "Received robot joint states: " + ", ".join(self._joint_state_names)
+        )
+        self.joint_state_node.destroy_node()
+
     def current_pose(self):
         transform = self.tf_buffer.lookup_transform(
             self.base_frame,
@@ -303,30 +333,63 @@ class AutomaticCalibration:
         )
 
     def make_targets(self, position, orientation):
-        """Sampling sequence: 12 tool-axis rotations and 3 small XYZ translations."""
-        delta = math.radians(self.rotation_delta_degrees)
+        """Sample single- and two-axis rotations plus base translations."""
+        single = 35.0
+        yaw = 40.0
+        mixed = 25.0
+        rotation_offsets = (
+            (35.0, 0.0, 0.0), (-35.0, 0.0, 0.0),  # Poses 1-2: tool-X tilt ±35°
+            (0.0, single, 0.0), (0.0, -single, 0.0),
+            (0.0, 0.0, yaw), (0.0, 0.0, -yaw),
+            (mixed, mixed, 0.0), (-mixed, -mixed, 0.0),
+            (0.0, mixed, mixed), (0.0, -mixed, -mixed),
+            (mixed, 0.0, -mixed), (-mixed, 0.0, mixed),
+        )
         axes = ((1, 0, 0), (0, 1, 0), (0, 0, 1))
         rotations = []
-        for angle in (delta, -delta, delta / 2, -delta / 2):
-            for axis in axes:
-                rotations.append(quat_multiply(orientation, axis_angle_quaternion(axis, angle)))
+        for roll, pitch, yaw in rotation_offsets:
+            target = orientation
+            for axis, degrees in zip(axes, (roll, pitch, yaw)):
+                if degrees:
+                    target = quat_multiply(
+                        target,
+                        axis_angle_quaternion(axis, math.radians(degrees)),
+                    )
+            rotations.append(target)
+        # Add three equal, widely separated tilt directions in the tool X/Y
+        # plane. They move the marker plane normal farther from its starting
+        # direction while keeping the added excitation balanced around it.
+        normal_tilt = math.radians(50.0)
+        tilt_axes = (
+            (1.0, 0.0, 0.0),
+            (-0.5, math.sqrt(3.0) / 2.0, 0.0),
+            (-0.5, -math.sqrt(3.0) / 2.0, 0.0),
+        )
+        for axis in tilt_axes:
+            rotations.append(
+                quat_multiply(orientation, axis_angle_quaternion(axis, normal_tilt))
+            )
         offset = self.translation_delta_meters
+        front_back_offset = 0.14
         translations = (
             (position[0] + offset, position[1], position[2]),
             (position[0], position[1] + offset, position[2]),
             (position[0], position[1], position[2] + offset),
+            (position[0] - front_back_offset, position[1], position[2]),
+            (position[0] + front_back_offset, position[1], position[2]),
         )
         return [(position, q) for q in rotations] + [(p, orientation) for p in translations]
 
     def preflight_targets(self, targets, start_position, start_orientation, readiness):
-        """Plan the sampling sequence and return without sending any motion."""
-        route = list(targets) + [(start_position, start_orientation)]
+        """Preflight each sample pose; mark unplannable poses to skip."""
+        self.wait_for_joint_states()
         self.planning.set_start_state_to_current_state()
-        previous = self.planning.get_start_state()
+        previous = None
         print(f"Starting preflight for {len(targets)} sample poses and the return to the starting pose. No motion or sampling at this stage.", flush=True)
+        feasible_indices = set()
         try:
-            for index, (position, orientation) in enumerate(route, start=1):
-                label = f"sample pose {index}/{len(targets)}" if index <= len(targets) else "return to the starting pose"
+            for index, (position, orientation) in enumerate(targets, start=1):
+                label = f"sample pose {index}/{len(targets)}"
                 goal = PoseStamped()
                 goal.header.frame_id = self.base_frame
                 goal.header.stamp = self.node.get_clock().now().to_msg()
@@ -336,21 +399,49 @@ class AutomaticCalibration:
                 print(f"Preflight {label}: XYZ={position}, quaternion={orientation}", flush=True)
                 plan = None
                 for attempt in range(1, self.max_planning_retries + 1):
-                    self.planning.set_start_state(robot_state=previous)
+                    if previous is None:
+                        self.planning.set_start_state_to_current_state()
+                    else:
+                        self.planning.set_start_state(robot_state=previous)
                     self.planning.set_goal_state(pose_stamped_msg=goal, pose_link=self.tool_link)
                     print(f"Preflight {label}: planning attempt {attempt}/{self.max_planning_retries}...", flush=True)
                     plan = self.planning.plan()
                     if plan and len(plan.trajectory):
                         break
                 if not plan or not len(plan.trajectory):
-                    readiness.diagnose_goal(goal, self.tool_link, "ur_manipulator")
-                    raise RuntimeError(f"Preflight failed for {label}. No calibration motion or sampling has started. "
-                                       "Adjust the starting pose and run again; sample targets have not been changed.")
+                    try:
+                        readiness.diagnose_goal(goal, self.tool_link, "ur_manipulator")
+                    except Exception as exc:
+                        self.node.get_logger().warning(
+                            f"Preflight diagnostics for {label} failed: {exc}"
+                        )
+                    print(f"Preflight could not plan {label}; it will be skipped.", flush=True)
+                    continue
                 previous = plan.trajectory[len(plan.trajectory)-1]
+                feasible_indices.add(index)
                 print(f"Preflight passed: {label}", flush=True)
+
+            # Returning home is useful but does not invalidate otherwise usable
+            # calibration samples if MoveIt cannot plan that final segment.
+            home = PoseStamped()
+            home.header.frame_id = self.base_frame
+            home.header.stamp = self.node.get_clock().now().to_msg()
+            home.pose.position.x, home.pose.position.y, home.pose.position.z = start_position
+            (home.pose.orientation.x, home.pose.orientation.y,
+             home.pose.orientation.z, home.pose.orientation.w) = start_orientation
+            self.planning.set_start_state_to_current_state() if previous is None else \
+                self.planning.set_start_state(robot_state=previous)
+            self.planning.set_goal_state(pose_stamped_msg=home, pose_link=self.tool_link)
+            home_plan = self.planning.plan()
+            return_feasible = bool(home_plan and len(home_plan.trajectory))
+            if return_feasible:
+                print("Preflight passed: return to the starting pose.", flush=True)
+            else:
+                print("Preflight could not plan the return to the starting pose; the workflow will still attempt it after sampling.", flush=True)
         finally:
             self.planning.set_start_state_to_current_state()
-        print("All preflight checks passed. Replanning, executing and sampling each pose next.", flush=True)
+        print(f"Preflight complete: {len(feasible_indices)}/{len(targets)} sample poses are plannable.", flush=True)
+        return feasible_indices, return_feasible
 
     def plan_and_execute(self, position, orientation, label, readiness):
         goal = PoseStamped()
@@ -389,14 +480,16 @@ class AutomaticCalibration:
                 self.node.get_logger().error(
                     f"Planning diagnostics could not complete: {exc}"
                 )
-            raise RuntimeError(
+            print(
                 f"MoveIt could not plan target {label} after "
-                f"{self.max_planning_retries} attempts. The trajectory was not executed. "
-                "Review the pose and planning diagnosis above."
+                f"{self.max_planning_retries} attempts. Skipping this pose.",
+                flush=True,
             )
+            return False
         status = self.robot.execute(result.trajectory, controllers=[])
         if not status:
             raise RuntimeError(f"Target {label} execution failed; no sample collected")
+        return True
 
     @staticmethod
     def print_calibration(calibration):
@@ -451,27 +544,78 @@ class AutomaticCalibration:
 
         start_position, start_orientation = self.current_pose()
         targets = self.make_targets(start_position, start_orientation)
-        self.preflight_targets(targets, start_position, start_orientation, readiness)
+        feasible_indices, _ = self.preflight_targets(
+            targets, start_position, start_orientation, readiness
+        )
         print(f"Starting tool pose ({self.base_frame}): {start_position}", flush=True)
-        print(f"Capturing {len(targets)} calibration samples (12 rotations and 3 translations).", flush=True)
+        print(f"Capturing {len(targets)} calibration samples (6 single-axis rotations, 6 coupled rotations, 3 extended marker-normal tilts, and 5 translations including two extra base-X front/back poses).", flush=True)
 
+        successful_poses = []
+        skipped_poses = {}
         for index, (position, orientation) in enumerate(targets, start=1):
+            if index not in feasible_indices:
+                skipped_poses[index] = "preflight planning failed"
+                continue
             print(f"\nPose {index}/{len(targets)}: planning and moving...", flush=True)
-            self.plan_and_execute(position, orientation, index, readiness)
-            time.sleep(self.settle_seconds)
-            response = readiness.call_service(
-                sample_client, TakeSample.Request(), "take sample"
-            )
-            sample_count = len(response.samples.samples)
-            if sample_count != index:
-                raise RuntimeError(
-                    f"Easy HandEye 2 did not record sample {index} "
-                    f"(current sample count: {sample_count})"
+            if not self.plan_and_execute(position, orientation, index, readiness):
+                skipped_poses[index] = "MoveIt planning failed during execution"
+                continue
+            previous_sample_count = len(successful_poses)
+            sample_count = previous_sample_count
+            max_sample_attempts = 3
+            for sample_attempt in range(1, max_sample_attempts + 1):
+                time.sleep(self.settle_seconds if sample_attempt == 1 else 1.0)
+                response = readiness.call_service(
+                    sample_client, TakeSample.Request(), "take sample"
                 )
-            print(f"Captured sample {sample_count}/{len(targets)}", flush=True)
+                sample_count = len(response.samples.samples)
+                if sample_count == previous_sample_count + 1:
+                    break
+                if sample_count != previous_sample_count:
+                    raise RuntimeError(
+                        f"Unexpected Easy HandEye sample count after pose {index}: "
+                        f"expected {previous_sample_count} or {previous_sample_count + 1}, got {sample_count}"
+                    )
+                if sample_attempt < max_sample_attempts:
+                    print(
+                        f"Sample {index} was rejected as unstable; keeping the robot "
+                        f"still and retrying ({sample_attempt + 1}/{max_sample_attempts}).",
+                        flush=True,
+                    )
+            if sample_count != previous_sample_count + 1:
+                skipped_poses[index] = "marker not detected or pose rejected as unstable"
+                print(
+                    f"Pose {index} was not sampled after {max_sample_attempts} attempts; "
+                    "skipping it and continuing.", flush=True,
+                )
+                continue
+            successful_poses.append(index)
+            print(f"Captured sample for pose {index}: {len(successful_poses)}/{len(targets)}", flush=True)
+            if index < len(targets):
+                time.sleep(self.inter_pose_pause_seconds)
 
         print("\nReturning to the starting pose...", flush=True)
-        self.plan_and_execute(start_position, start_orientation, "return", readiness)
+        returned_to_start = self.plan_and_execute(
+            start_position, start_orientation, "return", readiness
+        )
+        if not returned_to_start:
+            print("Could not plan the return to the starting pose.", flush=True)
+
+        print("\n========== Sampling Summary ==========")
+        print(f"Successful poses: {len(successful_poses)}/{len(targets)} {successful_poses}")
+        print(f"Skipped poses: {len(skipped_poses)}/{len(targets)}")
+        for pose_index, reason in sorted(skipped_poses.items()):
+            print(f"  Pose {pose_index}: {reason}")
+        print(f"Returned to starting pose: {'yes' if returned_to_start else 'no'}")
+        print("======================================\n", flush=True)
+
+        minimum_successful_samples = math.ceil(0.8 * len(targets))
+        if len(successful_poses) < minimum_successful_samples:
+            raise RuntimeError(
+                f"Only {len(successful_poses)}/{len(targets)} poses were sampled "
+                f"successfully; at least {minimum_successful_samples} are required "
+                "to compute a calibration."
+            )
         result = readiness.call_service(
             readiness.service_clients["compute_calibration"],
             ComputeCalibration.Request(), "compute calibration",

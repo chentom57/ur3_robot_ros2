@@ -11,7 +11,12 @@ from .anygrasp_input import load_candidates
 class DockerClient:
     def __init__(self, settings, worker):
         self.s = settings
-        self.worker = Path(worker)
+        # colcon --symlink-install may expose data_files through a chain of
+        # symlinks. Docker must receive the real source file, not a host path
+        # symlink that is broken inside the container.
+        self.worker = Path(worker).expanduser().resolve(strict=True)
+        if not self.worker.is_file():
+            raise FileNotFoundError(f'AnyGrasp worker is not a regular file: {self.worker}')
         self.prefix = (['sudo', '-n'] if settings['docker_use_sudo'] else []) + ['docker']
         self.container = settings['docker_container']
 
@@ -63,6 +68,10 @@ class DockerClient:
         try:
             self.command(['cp', str(job / 'cloud.npz'), self.container + ':' + remote + '/cloud.npz'])
             self.command(['cp', str(self.worker), self.container + ':' + remote + '/worker.py'])
+            self.command(['exec', self.container, 'python', '-c',
+                'import pathlib,sys; p=pathlib.Path(sys.argv[1]); '
+                'assert p.is_file(), f"Worker was not copied into the container: {p}"',
+                remote + '/worker.py'])
             args = ['exec', '-w', self.s['docker_sdk_dir'], '-e',
                 'PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True', self.container, 'python',
                 remote + '/worker.py', '--input', remote + '/cloud.npz', '--output', remote + '/grasps.json',

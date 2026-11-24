@@ -122,6 +122,8 @@ class PickUp:
             "grasp_tool_config": str(Path(get_package_share_directory("ur3_pick_up"))
                                      / "config/grasp_tool.example.json"),
             "pointcloud_topic": "/camera/camera/depth/color/points",
+            "color_image_topic": "/camera/camera/color/image_raw",
+            "color_camera_info_topic": "/camera/camera/color/camera_info",
             "cloud_timeout": 10.0, "cloud_max_age": 1.0,
             "workspace_min": list(DEFAULT_WORKSPACE_MIN),
             "workspace_max": list(DEFAULT_WORKSPACE_MAX),
@@ -156,6 +158,7 @@ class PickUp:
         self.gripper = None
         self.last_markers = None
         self.snapshot_base_from_camera = None
+        self.start_state = None
 
         config = (
             MoveItConfigsBuilder(robot_name="ur", package_name="ur_moveit_config")
@@ -239,10 +242,10 @@ class PickUp:
         verify_fixed_camera(self.snapshot_base_from_camera, matrix_from_transform(latest.transform))
 
     def plan_pick_and_return(self, xyz, *, target_orientation):
-        if "home" not in self.planning.named_target_states:
-            print("Outbound motion skipped: named state 'home' was not found in the MoveIt SRDF.")
+        if self.start_state is None:
+            print("Planning skipped: the arm's startup joint state was not captured.")
             return None, None
-        return_label = "named state 'home'"
+        return_label = "the recorded startup position"
 
         pose = PoseStamped()
         pose.header.frame_id = self.base_frame
@@ -266,7 +269,7 @@ class PickUp:
         print(f"Straight-line distance from current position to target: {distance:.3f} m")
         pose.pose.orientation = target_orientation
 
-        self.planning.set_start_state_to_current_state()
+        self.planning.set_start_state(robot_state=self.start_state)
         self.planning.set_goal_state(pose_stamped_msg=pose, pose_link=self.tool_link)
         self.node.get_logger().info(f"Planning outbound path to TCP target ({DISPLAY_FRAME}) {optical_xyz(self, target_tcp)}")
         try:
@@ -285,7 +288,7 @@ class PickUp:
         self.publish_target_and_paths(target_plan, None)
         target_end_state = target_trajectory[len(target_trajectory) - 1]
         self.planning.set_start_state(robot_state=target_end_state)
-        self.planning.set_goal_state(configuration_name="home")
+        self.planning.set_goal_state(robot_state=self.start_state)
         self.node.get_logger().info(f"Planning return path from target to {return_label}")
         try:
             return_plan = self.planning.plan()
@@ -422,31 +425,25 @@ class PickUp:
         return True
 
 
-    def move_to_initial_home(self):
-        """Plan from the actual state and confirm before moving to SRDF home."""
-        if "home" not in self.planning.named_target_states:
-            print("Startup stopped: named state 'home' was not found in the MoveIt SRDF.")
-            return False
+    def capture_start_state(self):
+        """Record the live joint state at startup as the task's start and return state."""
         self.planning.set_start_state_to_current_state()
-        self.planning.set_goal_state(configuration_name="home")
         try:
-            plan = self.planning.plan()
+            self.start_state = self.planning.get_start_state()
         except RuntimeError as exc:
-            print(f"Initial home planning failed: {exc}. The arm was not moved.")
+            print(f"Could not record the arm's startup position: {exc}.")
             return False
-        if not plan or len(plan.trajectory) == 0:
-            print("Initial home planning failed: no valid trajectory. The arm was not moved.")
+        if self.start_state is None:
+            print("Could not record the arm's startup position from MoveIt.")
             return False
-        self.publish_target_and_paths(plan, None)
-        print("Initial motion to 'home' is planned. Check the path in RViz before proceeding.")
-        if input("Move the arm to initial state 'home'? Enter y: ").strip().lower() != "y":
-            print("Startup canceled; live inference will not start.")
-            return False
-        return self.execute_plan(plan, "Initial home")
+        print("Recorded the arm's current joint position as the task start and return target.")
+        return True
 
     def run(self):
         if not self.scene_ready:
             print("Scene check failed: the virtual table was not received. The task will not run.")
+            return False
+        if not self.capture_start_state():
             return False
         from .anygrasp_task import run_anygrasp
         return run_anygrasp(self)

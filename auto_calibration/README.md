@@ -14,6 +14,16 @@ Complete Sections 1–4 of the [host/source setup guide](../ROS2+driver/ur3_ros2
 | `easy_handeye2` and `easy_handeye2_msgs` 0.5.0 | The generic calibration service is included; download message sources through the host guide. |
 | ArUco, TF and Python libraries | Declared in package.xml and installed through the host guide's rosdep command. |
 
+For a first-time build, complete Sections 1–4 of the host guide to build the workspace. After updating `auto_calibration` source in an existing workspace, rebuild this package and its dependencies:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+cd ~/ur3_ws
+colcon build --symlink-install --packages-up-to auto_calibration \
+  --cmake-args -DBUILD_TESTING=OFF
+source ~/ur3_ws/install/setup.bash
+```
+
 `auto_calibration` owns UR3 motion, tracker startup, operator prompts and camera-root TF publication. [easy_handeye2](../easy_handeye2/README.md) owns sampling, calibration computation, persistence and the manual GUI. Automatic operation starts only the background calibration service, without the manual GUI. Neither package requires Docker, an AnyGrasp license or weights.
 
 Check the required entry points:
@@ -54,9 +64,9 @@ Cleanup verifies that matching processes, services, ROS nodes and resource locks
 
 Startup cleanup also stops an independently running calibration publisher. Publication is still offered after saving; answer `y` to publish again. Existing RViz listeners may retain previously received static TF; stopping a publisher does not erase listener caches.
 
-The program starts the tracker, waits for `camera_color_optical_frame → marker_582`, then asks `Marker detected. Start automatic calibration? [y/n]:`. Answering `y` authorizes the automatic motion and sampling sequence; the preflight does not ask again for each pose.
+The program starts the tracker with subpixel corner refinement and the `REPROJECTION_ERROR` pose selector, waits for `camera_color_optical_frame → marker_582`, then asks `Marker detected. Start automatic calibration? [y/n]:`. Answering `y` authorizes the automatic motion and sampling sequence; the preflight does not ask again for each pose. Planar markers can still have multiple pose solutions, so this selector cannot rule out every stable wrong solution.
 
-The workflow clears the server sample list and verifies zero, preflights all targets plus the return to the starting pose, then replans and executes each segment. It takes 15 samples: rotations of ±20° and ±10° about each tool axis, plus +0.04 m along each robot-base axis. After each move it waits 1.5 s before sampling. Each target can be planned up to 10 times. After returning to the starting pose, it computes and saves the calibration. These motion settings are code constants, not CLI options.
+The workflow clears the server sample list and verifies zero, then preflights all targets. An unplannable pose is recorded and skipped; later targets continue. A planning failure during execution also skips that pose. It plans 20 poses: six single-axis rotations (tool X: ±35°; tool Y: ±35°; tool Z: ±40°), six coupled two-axis rotations (three axis pairs at ±25° per axis), three additional 50° tilts evenly distributed in the tool X/Y plane to vary the marker-plane normal, three +0.10 m translations along the robot-base axes, and two front/back translations along base X at ±0.14 m from the starting position. After each move it waits 1.5 s before sampling. For each pose, Easy HandEye collects 10 observations; at least 9 of 10 must agree within 8 mm and 8°. Otherwise it retries at the same pose up to three times. A marker that remains undetected or unstable causes that pose to be skipped. At the end, the workflow reports successful and skipped pose numbers; at least 16 of 20 poses must be sampled to compute a calibration. Before computing an eye-on-base result, a cross-pose check compares the implied rigid tool-to-marker transform across all successfully sampled poses. Temporary diagnostic setting: the cross-pose inlier limits are widened to 1,000,000 m and 180° so all sampled poses can pass this consistency gate and contribute to the computed result. This bypass does not make inconsistent observations accurate; treat the calibration as diagnostic only. This cannot identify a globally consistent but physically wrong mounting solution without an external reference. Each target can be planned up to 10 times. The workflow attempts to return to the starting pose and reports if that plan fails. These motion settings are code constants, not CLI options.
 
 After saving, answer `Calibration saved. Start TF publishing? [y/n]:`. `y` reloads an existing publisher for this calibration, or starts one and keeps the terminal running. `n` saves without starting publication. Ctrl+C stops the processes owned by this workflow; an independently running publisher remains independent.
 
@@ -143,7 +153,7 @@ Every source file in this folder and its subfolders is listed below, relative to
 | [README.zh-TW.md](README.zh-TW.md) | Traditional Chinese guide: Automatic calibration, startup cleanup, parameters, TF publication and operation checks. |
 | [auto_calibration/__init__.py](auto_calibration/__init__.py) | Python package marker and description for automatic calibration. |
 | [auto_calibration/calibrate.py](auto_calibration/calibrate.py) | Automatic calibration entry point coordinating cleanup, tracker, services, prompts, motion worker and TF publication. |
-| [auto_calibration/motion.py](auto_calibration/motion.py) | Service clients, 15-pose generation, planning diagnostics/retries, motion, sample reset and compute/save workflow. |
+| [auto_calibration/motion.py](auto_calibration/motion.py) | Service clients, 20-pose generation, planning diagnostics/retries, motion, sample reset and compute/save workflow. |
 | [auto_calibration/publisher.py](auto_calibration/publisher.py) | Load calibration, compose/publish camera-root TF, enforce one publisher and provide the reload service. |
 | [auto_calibration/startup.py](auto_calibration/startup.py) | Identify/stop previous calibration and same-camera tracker processes; check ROS conflicts and locks before startup. |
 | [launch/publish.launch.py](launch/publish.launch.py) | Launch the saved-calibration TF publisher with calibration-name and camera-root arguments. |

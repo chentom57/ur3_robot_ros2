@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-`ros2 run ur3_pick_up pick_up` 從相機取得新點雲，自動呼叫既有 Docker 的 AnyGrasp，依評分由高到低嘗試工作區內的有效 pose，選擇第一個去程與返回 home 都能規劃的姿態。一次啟動擷取一個場景，最多執行一個 pose；手臂移動前仍需確認。
+`ros2 run ur3_pick_up pick_up` 先記錄手臂當下關節位置作為任務起點與回程目標，不會先移動手臂；接著開啟即時彩色影像視窗，讓使用者以兩次點擊框選單一目標物。框選確認後 GUI 會保持開啟，直到流程完成或中止。程式擷取同步影像與點雲，將矩形遮罩映射到點雲並限制 AnyGrasp 候選區域，完整場景點雲仍提供給碰撞檢查。程式依評分嘗試工作區內有效 pose，選出第一個去程與返回記錄起始位置都能規劃的姿態；執行夾取及最後放爪確認都在 GUI 操作。
 
 ## 工作區與 RViz
 
@@ -83,7 +83,7 @@ sudo -v
 ros2 run ur3_pick_up pick_up --ros-args -p plan_only:=true
 ```
 
-此時相機、校正 TF、MoveIt 與桌面仍須運作；從目前手臂狀態擷取及規劃，不先移動到 home。
+此時相機、校正 TF、MoveIt 與桌面仍須運作；手臂維持原位，程式會記錄啟動時的關節位置，作為規劃起點與最後回程目標。
 
 ## 執行前檢查與操作提示
 
@@ -101,26 +101,28 @@ ros2 run tf2_ros tf2_echo base_link camera_color_optical_frame
 
 | 操作時機 | 畫面／提示 | 操作與結果 |
 | --- | --- | --- |
-| 初始 home 規劃成功 | `Move the arm to initial state 'home'? Enter y:` | 檢查 RViz 初始路徑；輸入 `y` 才移動。其他回答取消整次任務。 |
-| home 到位 | 擷取新點雲、顯示場景／工作區點數與紀錄路徑 | 等待一次 Docker 推論；目前不需輸入候選索引。 |
-| 推論及篩選成功 | 候選索引、score、width、TCP 相機座標 | 程式依分數由高到低嘗試有效 pose，直到某個 pose 的去回程都規劃成功。 |
-| 去回程均成功 | `Confirm arm/gripper execution? Enter y:` | 檢查目標面向與兩段路徑；輸入 `y` 才開始候選任務。其他回答取消後續動作；初始 home 可能已完成。 |
-| 完成 | 已返回 home 與開爪釋放結果 | 本次流程結束。若要換物體再抓一次，重新執行啟動指令，會重新擷取點雲及推論。 |
+| 啟動 | 記錄當下關節位置作為起點與回程目標 | 手臂不會在啟動時移動。 |
+| 準備完成 | 相機視窗持續顯示即時 RGB 影像 | 點擊矩形框兩個對角，`Enter` 確認；右鍵或 `U` 撤銷一點、`R` 重畫、`Esc` 取消。確認後擷取最新同步影像與點雲，GUI 保持開啟。 |
+| 區域確認 | 顯示選取物件點數、場景點數與紀錄路徑 | 選取區域和工作區交集作為候選遮罩；完整點雲仍用於碰撞檢查。 |
+| 推論及篩選成功 | 候選索引、score、width、TCP 相機座標 | 程式依分數由高到低嘗試有效 pose，直到某個 pose 的去程及返回起始位置都規劃成功。 |
+| 去回程均成功 | GUI 的 `EXECUTE PICK`、`CANCEL` 按鈕 | 檢查目標面向與兩段路徑；在 GUI 確認（或按 `Y`）才開始夾取，取消（或按 `N`）則停止。規劃期間手臂保持在記錄的起始位置。 |
+| 手臂返回起點 | GUI 的 `OPEN GRIPPER / RELEASE`、`ABORT / KEEP CLOSED` 按鈕 | 夾爪保持閉合等待決定。在 GUI 下達放開指令（或按 `O`）後才開爪；中止（或按 `Q`）會讓夾爪保持閉合。放爪完成或流程中止後才關閉 GUI。 |
+| 完成 | 已返回記錄的起始位置與開爪釋放結果 | 本次流程結束。若要換物體再抓一次，重新執行啟動指令，會重新擷取點雲及推論。 |
 | 任一階段失敗 | 階段名稱與失敗原因 | 停止後續步驟；依訊息與 exchange 紀錄排查後重新啟動。 |
 
-`plan_only:=true` 不會出現這兩個執行確認提示，也不會移到初始 home；它仍會嘗試取得點雲、呼叫 Docker 並從目前手臂狀態規劃。
+`plan_only:=true` 不會移動手臂或夾爪；程式仍會記錄啟動時的關節位置，取得點雲、呼叫 Docker 並進行規劃。
 
 ## 任務流程
 
 1. 顯示工作區，檢查共用桌面、Docker 容器與 SDK／權重路徑。
-2. 規劃初始 home，顯示路徑並詢問 `Move the arm to initial state 'home'? Enter y:`。
-3. 到位後等待 0.5 秒，再擷取新 PointCloud2；只接受擷取開始後、年齡不超過 `cloud_max_age` 的樣本。
-4. 依訊息真實 `header.frame_id` 及擷取時間 TF 轉成 `camera_color_optical_frame`。以同一時間的相機→base TF 決定工作區；不直接改 frame 名稱。
-5. 過濾無效點／相機深度、體素降採樣並限制點數。保留範圍外場景點供 SDK 檢查夾爪碰撞，將工作區布林遮罩一同送入容器。工作區點數不足就停止，避免 SDK 將全 false 遮罩視為不限定區域。
-6. 容器只推論一次，使用 `dense_grasp=false`、`collision_detection=true`、`region_steering=工作區遮罩`，再 NMS 及評分排序。無需 SAM，但不會辨識物體名稱。
-7. 主機再次檢查候選的開口、旋轉與位置。原始抓取中心及加上 depth 後的 TCP 均須在工作區內；將有效 pose 依 score 由高到低排序，逐一嘗試去程與返回 home 的規劃。某個 pose 的任一段規劃失敗，就換次高分 pose；直到兩段都成功才選定。全部有效 pose 都失敗時，顯示英文 `All candidate poses failed to plan.`，結束候選任務。規劃嘗試期間不移動手臂，也不操作夾爪。
-8. 所有 pose 共用同一次點雲與擷取時的 TF；每次嘗試前及選定後都檢查 TF。選定的 pose 兩段成功才詢問 `Confirm arm/gripper execution? Enter y:`。回答 y 後再檢查 TF，更新超過 3 mm 或 0.5° 就取消。
-9. 執行到候選姿態 → 開爪 POS=0 → 閉爪 POS=255 → 返回 home → 開爪 POS=0 釋放物體。各階段失敗會停止後續動作並標示階段。夾爪動作失敗時不會自動回 home。只有返回 home 執行成功後才開爪；若回程失敗，就不下達釋放命令。若 home 開爪時因接觸而提前停止，會回報釋放階段失敗。
+2. 記錄啟動時的關節位置，作為任務起點及最後回程目標；啟動後不先移動手臂。
+3. 同步等待新彩色影像與 PointCloud2（時間差最多 0.15 秒，年齡不超過 `cloud_max_age`），並取得彩色相機 CameraInfo。
+4. 在持續更新的 OpenCV 即時影像視窗點擊矩形框的兩個對角選取單一目標。按 Enter 後才取得新同步影像、點雲與 CameraInfo；程式依內參將點雲投影至原始影像，再用矩形遮罩選出對應點，不要求點雲與影像解析度或排列方式相同。取消或選取點數不足就停止。手動遮罩不是語意辨識，框內應只包含目標物。
+5. 依點雲真實 `header.frame_id` 及擷取時間 TF 轉成 `camera_color_optical_frame`。完整場景做無效點／深度過濾、體素降採樣與點數限制；選取遮罩再與工作區遮罩相交，作為候選生成區域。完整場景點仍傳入 SDK 碰撞檢查。
+6. 容器只推論一次，使用 `dense_grasp=false`、`collision_detection=true`、`region_steering=依影像遮罩映射的點雲遮罩`，再 NMS 及評分排序。這是手動區域選取，沒有安裝或呼叫 SAM。
+7. 主機再次檢查候選的開口、旋轉與位置。原始抓取中心及加上 depth 後的 TCP 均須在工作區內；將有效 pose 依 score 由高到低排序，逐一嘗試去程與返回記錄起始關節位置的規劃。某個 pose 的任一段規劃失敗，就換次高分 pose；直到兩段都成功才選定。全部候選都失敗時，最後會列出成功／失敗數、各候選失敗階段，並明確回報沒有執行抓取軌跡。規劃嘗試期間不移動手臂，也不操作夾爪。
+8. 所有 pose 共用同一次點雲與擷取時的 TF；每次嘗試前及選定後都檢查 TF。選定的 pose 兩段成功後，在仍開啟的相機 GUI 確認是否執行。確認後再檢查 TF，更新超過 3 mm 或 0.5° 就取消。
+9. 使用者在 GUI 確認執行後，先在記錄的起始位置開爪 POS=0，並確認夾爪完全張開才移動手臂。接著移至候選姿態並閉爪 POS=255，再返回記錄的起始位置。回程成功後夾爪保持閉合，GUI 等待使用者選擇 `OPEN GRIPPER / RELEASE`；收到指令後才下達 POS=0 釋放物體。各階段失敗會停止後續動作並標示階段。夾爪動作失敗時不會自動回程；若出發前夾爪未完全張開，手臂不會移動；若回程失敗就不會詢問放爪。若放爪時因接觸而提前停止，會回報釋放階段失敗。放爪完成或流程中止後關閉 GUI。
 
 推論結果屬於擷取時的靜止場景，確認期間請保持相機與物體不動。本流程使用固定相機，不適用相機隨手臂移動的配置。SDK 的點雲碰撞篩選只處理抓取幾何；點雲不會自動變成 MoveIt 全手臂路徑的障礙物，路徑仍依目前 MoveIt 場景檢查。
 
@@ -152,6 +154,8 @@ ros2 run ur3_pick_up pick_up --ros-args \
 | --- | --- | --- |
 | `workspace_min` / `workspace_max` | 上表 XYZ | base_frame 內的選取盒，兩組三元素陣列，公尺。 |
 | `pointcloud_topic` | `/camera/camera/depth/color/points` | 新 PointCloud2 來源；依 header frame 正式轉換。 |
+| `color_image_topic` | `/camera/camera/color/image_raw` | 與點雲時間差不超過 0.15 秒的原始彩色影像來源。 |
+| `color_camera_info_topic` | `/camera/camera/color/camera_info` | 用來將點雲投影至原始彩色影像的相機內參。 |
 | `cloud_timeout` / `cloud_max_age` | `10.0` / `1.0` | 等待秒數／樣本可接受年齡。 |
 | `voxel_size` | `0.005` | 體素間距，公尺。 |
 | `max_points` / `min_roi_points` | `120000` / `50` | 完整場景點數上限／降採樣後工作區最少點數。 |
@@ -190,10 +194,11 @@ ros2 run ur3_pick_up pick_up --ros-args \
 ## 排錯與驗證
 
 - 無點雲：檢查 bringup、相機連線與 topic；使用 `ros2 topic list` 確認實際名稱。
+- `Truncated PointCloud2 data or invalid row_step`：若單列點雲的資料已包含全部點，decoder 會忽略 publisher 遺留的過大 `row_step`，改用緊密排列的列步長。其他錯誤格式會列出 width、height、point step、row step 與資料大小；請檢查目前 topic 和 publisher。
 - 工作區無點：先看 RViz 框線、點雲與手臂是否對齊，檢查手眼校正與 TF，勿只改 frame 字串。
 - Docker permission denied／sudo requires password：在啟動節點的同一終端先 `sudo -v`；若等待過久憑證過期，重新執行。
 - CUDA OOM：降低 `max_points`、增加 `voxel_size` 或縮小 `max_camera_depth`；空區域仍會拒絕推論。
-- 去程／回程規劃失敗：依分數改試下一個有效 pose，直到成功或全部用完。全部失敗顯示 `All candidate poses failed to plan.`；初始 home 可能已經完成。若確認後已開始執行，動作失敗會停止後續流程，不會再改試其他 pose。
+- 去程／回程規劃失敗：依分數改試下一個有效 pose，直到成功或全部用完。全部失敗顯示 `All candidate poses failed to plan.`；規劃期間手臂保持在記錄的起始位置。若確認後已開始執行，動作失敗會停止後續流程，不會再改試其他 pose。
 - 每次輸出保留在 exchange 的 UUID 子目錄：`cloud.npz`（points、region、capture metadata）、`capture.json`（TF／工作區）、`grasps.json`（成功結果）、`inference.log`。容器暫存會清除；主機紀錄需自行定期清理。
 - `Deleting MoveItCpp` 後 Segmentation fault 是既有原生清理問題；不能據此判定任務已成功，須看各階段結果。
 
@@ -224,8 +229,9 @@ SDK 介面依據：[AnyGrasp 官方使用說明](https://github.com/graspnet/any
 | [setup.py](setup.py) | 註冊 pick_up 指令，安裝工具設定、容器推論 worker 與雙語 README。 |
 | [ur3_pick_up/__init__.py](ur3_pick_up/__init__.py) | 標示即時夾取 Python 套件。 |
 | [ur3_pick_up/anygrasp_input.py](ur3_pick_up/anygrasp_input.py) | 解析與驗證 AnyGrasp／GraspNet 候選及工具設定，處理深度、軸向與 TCP 姿態轉換。 |
-| [ur3_pick_up/anygrasp_task.py](ur3_pick_up/anygrasp_task.py) | 串接擷取、推論與候選排序，依序嘗試可規劃姿態，確認後執行夾取與返回 home／開爪。 |
+| [ur3_pick_up/anygrasp_task.py](ur3_pick_up/anygrasp_task.py) | 串接擷取、推論與候選排序，依序嘗試可規劃姿態，確認後執行夾取並返回記錄的起始位置／開爪。 |
 | [ur3_pick_up/camera_capture.py](ur3_pick_up/camera_capture.py) | 接收本次新的 PointCloud2，檢查時間與 frame，取得點雲對應的 TF 快照。 |
 | [ur3_pick_up/docker_client.py](ur3_pick_up/docker_client.py) | 檢查與啟動既有容器，透過檔案與 docker cp／exec 送出推論請求並讀回結果。 |
 | [ur3_pick_up/live_input.py](ur3_pick_up/live_input.py) | 點雲解碼、座標轉換、工作區／體素／點數篩選、候選排序及固定相機 TF 一致性檢查。 |
 | [ur3_pick_up/pick_up.py](ur3_pick_up/pick_up.py) | pick_up 入口、ROS 參數、MoveIt 規劃／執行、TCP／路徑標記與 Robotiq socket 控制。 |
+| [ur3_pick_up/target_selection.py](ur3_pick_up/target_selection.py) | 持續開啟的即時影像 GUI，處理矩形選取、夾取確認與延後放爪確認。 |

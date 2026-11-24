@@ -157,6 +157,9 @@ def main():
             "-p", f"cam_base_topic:={args.image_topic}",
             "-p", f"marker_size:={args.marker_size}",
             "-p", f"marker_dict:={args.marker_dict}",
+            "-p", "pose_selector.strategy:=REPROJECTION_ERROR",
+            "-p", "pose_selector.debug:=true",
+            "-p", "aruco.cornerRefinementMethod:=1",
         ]
         print("Starting ArUco tracker...", flush=True)
         processes.append(("ArUco tracker",
