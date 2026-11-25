@@ -1,0 +1,22 @@
+{
+  "tool_link": "tool0",
+  "use_pose_tcp": true,
+  "grasp_to_tcp_rotation": [
+    [
+      0,
+      0,
+      1
+    ],
+    [
+      0,
+      1,
+      0
+    ],
+    [
+      -1,
+      0,
+      0
+    ]
+  ],
+  "max_opening_m": 0.085
+}

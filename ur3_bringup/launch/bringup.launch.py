@@ -4,6 +4,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.substitutions import FindPackageShare
+from launch_ros.actions import Node
 
 
 def generate_launch_description():
@@ -47,7 +48,7 @@ def generate_launch_description():
     moveit = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution(
-                [FindPackageShare("ur_moveit_config"), "launch", "ur_moveit.launch.py"]
+                [FindPackageShare("ur3_bringup"), "launch", "moveit.launch.py"]
             )
         ),
         launch_arguments={
@@ -65,6 +66,7 @@ def generate_launch_description():
             )
         ),
         condition=IfCondition(launch_camera_condition),
+        launch_arguments={"pointcloud.enable": "true"}.items(),
     )
 
     return LaunchDescription(

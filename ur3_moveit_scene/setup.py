@@ -8,7 +8,7 @@ setup(
     packages=[package_name],
     data_files=[
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
-        ("share/" + package_name, ["package.xml"]),
+        ("share/" + package_name, ["package.xml", "README.md", "README.zh-TW.md"]),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -17,6 +17,8 @@ setup(
     description="Shared virtual collision geometry for UR3 MoveIt",
     license="Apache-2.0",
     entry_points={
-        "console_scripts": ["virtual_table = ur3_moveit_scene.virtual_table:main"],
+        "console_scripts": [
+            "virtual_table = ur3_moveit_scene.virtual_table:main",
+        ],
     },
 )

@@ -1,57 +1,33 @@
-# Shared Virtual Table for MoveIt
+# Shared virtual collision table
 
-This package adds a large horizontal collision slab to the shared MoveIt Planning Scene. It is started from `ur_moveit_config/launch/ur_moveit.launch.py`, so `move_group`, RViz, the pick program, and other planning clients see the same table. The 4 m × 4 m slab covers the UR3 workspace. The pick node does not create or own the table.
+This package adds one horizontal collision slab to the shared MoveIt Planning Scene. `ur3_bringup/launch/moveit.launch.py` starts it so `move_group`, RViz and planning clients use the same table. The pick-up node does not own or create the table.
 
-The launch defaults to a slab whose top face is at `z = -0.01 m` in `base_link`, one centimeter below the frame origin. Measure the physical tabletop relative to `base_link` and adjust the height as needed. The collision geometry is a 2 cm thick box extending downward from that top face.
+The default top face is at `z = -0.01 m` in `base_link`. Measure the physical tabletop relative to `base_link` and adjust `virtual_table_z` as needed. The collision box is 4 m × 4 m and 2 cm thick, extending down from its top face. The package also publishes a matching translucent blue RViz marker.
 
-## Install in `ur3_ws`
+## Build
 
-Copy this package into the workspace source directory:
-
-```bash
-cp -r /path/to/robotic\ control/ur3_moveit_scene ~/ur3_ws/src/
-```
-
-In the Universal Robots driver source at `~/ur3_ws/src/Universal_Robots_ROS2_Driver`, make these two changes:
-
-1. In `ur_moveit_config/package.xml`, add `<exec_depend>ur3_moveit_scene</exec_depend>`.
-2. In `ur_moveit_config/launch/ur_moveit.launch.py`, start `ur3_moveit_scene`'s `virtual_table` executable along with MoveIt. The current workspace copy already includes these changes.
-
-Build the package and the MoveIt configuration:
-
-```bash
-source /opt/ros/jazzy/setup.bash
-cd ~/ur3_ws
-colcon build --packages-up-to ur_moveit_config --symlink-install
-source ~/ur3_ws/install/setup.bash
-```
+Complete Sections 1–4 of the [host setup guide](../ROS2+driver/ur3_ros2_setup.md). This package is included in the complete project build. No separate installation is needed.
 
 ## Run
 
-Use the normal MoveIt launch command. The virtual table is enabled by default:
-
 ```bash
-ros2 launch ur_moveit_config ur_moveit.launch.py ur_type:=ur3 launch_rviz:=true
+ros2 launch ur3_bringup moveit.launch.py ur_type:=ur3 launch_rviz:=true
 ```
 
-Set its height relative to `base_link` at launch, for example:
+Set the table height in `base_link`, for example:
 
 ```bash
-ros2 launch ur_moveit_config ur_moveit.launch.py \
+ros2 launch ur3_bringup moveit.launch.py \
   ur_type:=ur3 launch_rviz:=true virtual_table_z:=-0.035
 ```
 
-Disable it when needed with `virtual_table_enabled:=false`.
-
-The combined `ur3_bringup` launch also starts this MoveIt configuration and forwards both table arguments:
+The combined bringup launch forwards the same setting:
 
 ```bash
 ros2 launch ur3_bringup bringup.launch.py virtual_table_z:=-0.035
 ```
 
-The separate-terminal helper also invokes the same `ur_moveit_config` launch, so its default table remains enabled.
-
-The collision slab is a 4 m × 4 m box, large enough to cover the UR3 work envelope. Its top face is the configured `virtual_table_z`. The package publishes the same translucent blue slab as a marker on `/moveit_virtual_table/marker`. The supplied MoveIt RViz configuration includes this marker display.
+Set `virtual_table_enabled:=false` to omit the collision slab when appropriate.
 
 ## Topics and parameters
 
@@ -60,7 +36,21 @@ The collision slab is a 4 m × 4 m box, large enough to cover the UR3 work envel
 | Launch argument `virtual_table_enabled` | `true` | Start the shared table publisher |
 | Launch argument `virtual_table_z` | `-0.01` | Table top height in `base_link`, meters |
 | Node parameter `base_frame` | `base_link` | Frame in which the table is defined |
-| Node parameter `table_extent` | `4.0` | Side length of the collision slab, meters |
-| Node parameter `table_thickness` | `0.02` | Slab thickness below the top face, meters |
-| Planning scene topic | `/planning_scene` | Shared collision-object update consumed by MoveIt scene monitors |
+| Node parameter `table_extent` | `4.0` | Table side length, meters |
+| Node parameter `table_thickness` | `0.02` | Thickness below the top face, meters |
+| Planning scene topic | `/planning_scene` | Shared collision-object updates |
 | RViz marker topic | `/moveit_virtual_table/marker` | Visualization of the collision slab |
+
+<a id="file-inventory"></a>
+## File inventory
+
+| File | Purpose |
+|---|---|
+| [README.md](README.md) | English guide to the shared collision table. |
+| [README.zh-TW.md](README.zh-TW.md) | Traditional Chinese guide to the shared collision table. |
+| [package.xml](package.xml) | ROS package metadata and runtime dependencies. |
+| [resource/ur3_moveit_scene](resource/ur3_moveit_scene) | Ament package marker. |
+| [setup.cfg](setup.cfg) | Installs the executable under `lib/ur3_moveit_scene`. |
+| [setup.py](setup.py) | Registers `virtual_table` and installs package resources and guides. |
+| [ur3_moveit_scene/__init__.py](ur3_moveit_scene/__init__.py) | Python package marker. |
+| [ur3_moveit_scene/virtual_table.py](ur3_moveit_scene/virtual_table.py) | Adds the shared table to MoveIt and publishes its RViz marker. |

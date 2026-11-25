@@ -1,57 +1,33 @@
-# MoveIt 共用虛擬桌面
+# MoveIt 共用虛擬碰撞桌面
 
-此套件會將大型水平碰撞板加入共用的 MoveIt Planning Scene。它由 `ur_moveit_config/launch/ur_moveit.launch.py` 啟動，因此 `move_group`、RViz、夾取程式及其他規劃用戶端都能使用同一個桌面。碰撞板為 4 公尺 × 4 公尺，可涵蓋 UR3 工作範圍；桌面不由夾取節點建立或管理。
+此套件會將水平碰撞板加入共用的 MoveIt Planning Scene。`ur3_bringup/launch/moveit.launch.py` 會啟動發布器，讓 `move_group`、RViz 與規劃用戶端使用同一個桌面。夾取節點不負責建立或管理桌面。
 
-預設碰撞板的上表面位於 `base_link` 座標系的 `z = -0.01 m`，也就是該座標系原點下方 1 公分。請量測實體桌面相對於 `base_link` 的高度，並視需要調整。碰撞幾何為厚 2 公分的方板，向下延伸。
+預設桌面上表面位於 `base_link` 的 `z = -0.01 m`。請量測實體桌面相對於 `base_link` 的高度，並視需要調整 `virtual_table_z`。碰撞板為 4 公尺 × 4 公尺、厚 2 公分，從上表面向下延伸。套件也會發布相同尺寸的半透明藍色 RViz 標記。
 
-## 安裝至 `ur3_ws`
+## 建置
 
-將此套件複製到工作區的原始碼目錄：
-
-```bash
-cp -r /path/to/robotic\ control/ur3_moveit_scene ~/ur3_ws/src/
-```
-
-在 `~/ur3_ws/src/Universal_Robots_ROS2_Driver` 的 Universal Robots 驅動原始碼中，進行以下兩項修改：
-
-1. 在 `ur_moveit_config/package.xml` 加入 `<exec_depend>ur3_moveit_scene</exec_depend>`。
-2. 在 `ur_moveit_config/launch/ur_moveit.launch.py` 加入 `ur3_moveit_scene` 的 `virtual_table` 執行程式，並與 MoveIt 一起啟動。目前工作區中的檔案已包含這些修改。
-
-建置套件與 MoveIt 設定：
-
-```bash
-source /opt/ros/jazzy/setup.bash
-cd ~/ur3_ws
-colcon build --packages-up-to ur_moveit_config --symlink-install
-source ~/ur3_ws/install/setup.bash
-```
+完成[主機與原始碼建置講義](../ROS2+driver/ur3_ros2_setup.zh-TW.md)第 1～4 節即可。本套件已包含在完整專案建置流程中，不需另外安裝。
 
 ## 啟動
 
-使用一般 MoveIt 啟動指令即可。虛擬桌面預設啟用：
-
 ```bash
-ros2 launch ur_moveit_config ur_moveit.launch.py ur_type:=ur3 launch_rviz:=true
+ros2 launch ur3_bringup moveit.launch.py ur_type:=ur3 launch_rviz:=true
 ```
 
-可在啟動時設定桌面上表面相對於 `base_link` 的高度，例如：
+可在 `base_link` 中設定桌面高度，例如：
 
 ```bash
-ros2 launch ur_moveit_config ur_moveit.launch.py \
+ros2 launch ur3_bringup moveit.launch.py \
   ur_type:=ur3 launch_rviz:=true virtual_table_z:=-0.035
 ```
 
-若要停用，設定 `virtual_table_enabled:=false`。
-
-整合式 `ur3_bringup` launch 也會啟動此 MoveIt 設定，並傳遞桌面高度與啟用參數：
+整合式 bringup 也會傳遞相同設定：
 
 ```bash
 ros2 launch ur3_bringup bringup.launch.py virtual_table_z:=-0.035
 ```
 
-分開開啟多個終端的 helper 也會呼叫同一個 `ur_moveit_config` launch，因此預設仍會載入桌面。
-
-碰撞板為 4 公尺 × 4 公尺，可涵蓋 UR3 工作範圍；上表面高度由 `virtual_table_z` 設定。套件會在 `/moveit_virtual_table/marker` 發布相同尺寸的半透明藍色方板標記。隨附的 MoveIt RViz 設定已加入此標記顯示項目。
+適當情況下可設定 `virtual_table_enabled:=false`，不加入碰撞板。
 
 ## Topic 與參數
 
@@ -60,7 +36,21 @@ ros2 launch ur3_bringup bringup.launch.py virtual_table_z:=-0.035
 | Launch 參數 `virtual_table_enabled` | `true` | 是否啟動共用桌面發布器 |
 | Launch 參數 `virtual_table_z` | `-0.01` | 桌面上表面在 `base_link` 中的高度，公尺 |
 | Node 參數 `base_frame` | `base_link` | 定義桌面的座標系 |
-| Node 參數 `table_extent` | `4.0` | 碰撞板邊長，公尺 |
-| Node 參數 `table_thickness` | `0.02` | 上表面以下的板厚，公尺 |
-| Planning Scene topic | `/planning_scene` | MoveIt 場景監控器接收共用碰撞物件更新的 topic |
+| Node 參數 `table_extent` | `4.0` | 桌面邊長，公尺 |
+| Node 參數 `table_thickness` | `0.02` | 上表面以下的厚度，公尺 |
+| Planning Scene topic | `/planning_scene` | 共用碰撞物件更新 |
 | RViz 標記 topic | `/moveit_virtual_table/marker` | 顯示碰撞板 |
+
+<a id="file-inventory"></a>
+## 檔案名稱與用途
+
+| 檔案名稱 | 功用 |
+|---|---|
+| [README.md](README.md) | 英文共用碰撞桌面指南。 |
+| [README.zh-TW.md](README.zh-TW.md) | 繁體中文共用碰撞桌面指南。 |
+| [package.xml](package.xml) | ROS 套件資訊與執行相依。 |
+| [resource/ur3_moveit_scene](resource/ur3_moveit_scene) | ament 索引套件標記。 |
+| [setup.cfg](setup.cfg) | 安裝 `lib/ur3_moveit_scene` 執行檔。 |
+| [setup.py](setup.py) | 註冊 `virtual_table` 並安裝套件資源與指南。 |
+| [ur3_moveit_scene/__init__.py](ur3_moveit_scene/__init__.py) | Python 套件標記。 |
+| [ur3_moveit_scene/virtual_table.py](ur3_moveit_scene/virtual_table.py) | 將共用桌面加入 MoveIt 並發布 RViz 標記。 |

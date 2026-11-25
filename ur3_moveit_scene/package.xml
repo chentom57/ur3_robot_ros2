@@ -5,7 +5,7 @@
   <description>Shared virtual collision geometry for the UR3 MoveIt planning scene.</description>
   <maintainer email="chentom@example.com">chentom</maintainer>
   <license>Apache-2.0</license>
-  <buildtool_depend>ament_python</buildtool_depend>
+  <buildtool_depend>python3-setuptools</buildtool_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>moveit_msgs</exec_depend>

@@ -15,3 +15,16 @@ __pycache__/
 # Crash dumps
 *.core
 core
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+install/
+log/
+.codex-report-build/
+.ruff_cache/
+.mypy_cache/
+dist/
+diagnostics/
+output/

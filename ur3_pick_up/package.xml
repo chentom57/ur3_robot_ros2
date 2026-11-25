@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>ur3_pick_up</name>
+  <version>0.1.0</version>
+  <description>UR3 live-camera AnyGrasp pick-up.</description>
+  <maintainer email="chentom@example.com">chentom</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>python3-setuptools</buildtool_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>ur_moveit_config</exec_depend>
+  <exec_depend>ur3_moveit_scene</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>tf2_ros_py</exec_depend>
+  <exec_depend>moveit_py</exec_depend>
+  <exec_depend>moveit_configs_utils</exec_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
